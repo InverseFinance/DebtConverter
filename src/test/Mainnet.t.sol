@@ -44,6 +44,7 @@ contract ContractTest is DSTest {
     error ConversionOccurredAfterGivenEpoch();
     error AlreadyRedeemedThisEpoch();
     error InsufficientDolaIOUs();
+    error OnlyOwner();
     
     function setUp() public {
         debtConverter = new DebtConverter(gov, treasury, oracle);
@@ -113,7 +114,79 @@ contract ContractTest is DSTest {
         debtConverter.redeem(0, 0);
 
         (,,uint dolaRedeemablePerDolaOfDebt) = debtConverter.repayments(0);
-        (,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
+        (,,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
+
+        assert(IERC20(DOLA).balanceOf(user) >= dolaRedeemablePerDolaOfDebt * dolaAmountConverted / 1e18);
+    }
+
+    function testRepaymentAndRedeemConversion() public {
+        //Convert anETH to DOLA IOUs
+        gibAnTokens(user, anEth, anTokenAmount);
+
+        vm.startPrank(user);
+
+        IERC20(anEth).approve(address(debtConverter), anTokenAmount);
+        debtConverter.convert(anEth, anTokenAmount, 0);
+        
+        //Repay DOLA IOUs
+        vm.startPrank(gov);
+        debtConverter.setExchangeRateIncrease(1e18);
+        for (uint i = 0; i < 4; i++) {
+            debtConverter.repayment(dolaAmount);
+        }
+
+        //Redeem DOLA IOUs on user
+        vm.startPrank(user);
+        debtConverter.redeemConversion(0);
+
+        vm.startPrank(gov);
+        debtConverter.repayment(debtConverter.outstandingDebt());
+
+        vm.startPrank(user);
+        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(0);
+
+        (,,uint dolaRedeemablePerDolaOfDebt) = debtConverter.repayments(0);
+        (,uint dolaAmountConverted,,) = debtConverter.conversions(user, 0);
+
+        assert(IERC20(DOLA).balanceOf(user) >= dolaRedeemablePerDolaOfDebt * dolaAmountConverted / 1e18);
+    }
+
+    function testRedeemMultipleConversions() public {
+        //Convert anETH to DOLA IOUs
+        gibAnTokens(user, anEth, anTokenAmount);
+        gibAnTokens(user, anYfi, anTokenAmount);
+
+        vm.startPrank(user);
+
+        IERC20(anEth).approve(address(debtConverter), anTokenAmount);
+        IERC20(anYfi).approve(address(debtConverter), anTokenAmount);
+        debtConverter.convert(anEth, anTokenAmount, 0);
+        debtConverter.convert(anYfi, anTokenAmount, 0);
+        
+        //Repay DOLA IOUs
+        vm.startPrank(gov);
+        debtConverter.setExchangeRateIncrease(1e18);
+        for (uint i = 0; i < 4; i++) {
+            debtConverter.repayment(dolaAmount * 2);
+        }
+
+        //Redeem DOLA IOUs on user
+        vm.startPrank(user);
+        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(1);
+
+        vm.startPrank(gov);
+        debtConverter.repayment(debtConverter.outstandingDebt());
+
+        vm.startPrank(user);
+        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(1);
+        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(1);
+
+        (,,uint dolaRedeemablePerDolaOfDebt) = debtConverter.repayments(0);
+        (,uint dolaAmountConverted,,) = debtConverter.conversions(user, 0);
 
         assert(IERC20(DOLA).balanceOf(user) >= dolaRedeemablePerDolaOfDebt * dolaAmountConverted / 1e18);
     }
@@ -177,13 +250,13 @@ contract ContractTest is DSTest {
         vm.startPrank(user);
 
         for (uint i = 10; i < 20; i++) {
-            (,uint dolaAmountConverted, uint dolaAmountRedeemed) = debtConverter.conversions(user, 0);
+            (,,uint dolaAmountConverted, uint dolaAmountRedeemed) = debtConverter.conversions(user, 0);
             uint dolaToBeRedeemed = debtConverter.getRedeemableDolaForEpoch(user, 0, i);
             if (dolaAmountConverted < dolaToBeRedeemed + dolaAmountRedeemed) {
                 vm.expectRevert(InsufficientDolaIOUs.selector);
             }
             debtConverter.redeem(0, i);
-            emit log_named_uint("DOLA balance of user", IERC20(DOLA).balanceOf(user));
+            // emit log_named_uint("DOLA balance of user", IERC20(DOLA).balanceOf(user));
         }
     }
 
@@ -245,6 +318,57 @@ contract ContractTest is DSTest {
 
         vm.expectRevert(TransferToAddressNotWhitelisted.selector);
         debtConverter.transferFrom(user, gov, 1);
+    }
+
+    function testSweepTokensNotCallableByNonOwner() public {
+        gibDOLA(address(debtConverter), 10);
+
+        vm.startPrank(user);
+
+        vm.expectRevert(OnlyOwner.selector);
+        debtConverter.sweepTokens(DOLA, 1);
+    }
+
+    function testSweepTokens() public {
+        uint amount = 10;
+
+        vm.startPrank(treasury);
+        IERC20(DOLA).transfer(address(debtConverter), amount);
+        uint prevBal = IERC20(DOLA).balanceOf(treasury);
+
+        vm.startPrank(gov);
+        IERC20(DOLA).balanceOf(address(debtConverter));
+        debtConverter.sweepTokens(DOLA, amount);
+
+        assert(prevBal + amount == IERC20(DOLA).balanceOf(treasury));
+    }
+
+    function testSetExchangeRateIncreaseNotCallableByNonOwner() public {
+        vm.startPrank(user);
+
+        vm.expectRevert(OnlyOwner.selector);
+        debtConverter.setExchangeRateIncrease(1e18);
+    }
+
+    function testSetOwnerNotCallableByNonOwner() public {
+        vm.startPrank(user);
+
+        vm.expectRevert(OnlyOwner.selector);
+        debtConverter.setOwner(user);
+    }
+
+    function testSetTreasuryNotCallableByNonOwner() public {
+        vm.startPrank(user);
+
+        vm.expectRevert(OnlyOwner.selector);
+        debtConverter.setTreasury(user);
+    }
+
+    function testWhitelistTransferForNotCallableByNonOwner() public {
+        vm.startPrank(user);
+
+        vm.expectRevert(OnlyOwner.selector);
+        debtConverter.whitelistTransferFor(user);
     }
 
     function gibAnTokens(address _user, address _anToken, uint _amount) internal {
