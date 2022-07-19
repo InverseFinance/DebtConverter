@@ -43,8 +43,8 @@ contract ContractTest is DSTest {
     error TransferToAddressNotWhitelisted();
     error ConversionOccurredAfterGivenEpoch();
     error AlreadyRedeemedThisEpoch();
-    error InsufficientDolaIOUs();
     error OnlyOwner();
+    error InvalidDebtToken();
     
     function setUp() public {
         debtConverter = new DebtConverter(gov, treasury, oracle);
@@ -66,6 +66,11 @@ contract ContractTest is DSTest {
         convert(anEth, anTokenAmount);
     }
 
+    function testConvertFailsWithFakeAnToken() public {
+        vm.expectRevert(InvalidDebtToken.selector);
+        debtConverter.convert(address(1), anTokenAmount, 0);
+    }
+
     function convert(address anToken, uint amount) public {
         gibAnTokens(user, anToken, amount);
         uint underlyingAmount = ICToken(anToken).balanceOfUnderlying(user);
@@ -85,17 +90,20 @@ contract ContractTest is DSTest {
         }
 
         uint decimals = 18;
+        uint dolaToBeReceived = underlyingAmount * feed.latestAnswer();
         if (anToken == anBtc) {
-            decimals = 8;
+            dolaToBeReceived = dolaToBeReceived * 10**2;
+        } else {
+            dolaToBeReceived = dolaToBeReceived / 10**decimals;
         }
-
-        uint dolaToBeReceived = underlyingAmount * feed.latestAnswer() / 10 ** decimals;
         uint dolaIOUsReceived = debtConverter.balanceOf(user);
         uint dolaReceived = debtConverter.convertDolaIOUsToDola(dolaIOUsReceived);
+        emit log_uint(dolaToBeReceived);
+        emit log_uint(dolaReceived);
         assert(dolaReceived == dolaToBeReceived);
     }
 
-    function testRepaymentAndRedeem() public {
+    function testRedeemWithInsufficientDolaIOUs() public {
         //Convert anETH to DOLA IOUs
         gibAnTokens(user, anEth, anTokenAmount);
 
@@ -104,19 +112,22 @@ contract ContractTest is DSTest {
         IERC20(anEth).approve(address(debtConverter), anTokenAmount);
         debtConverter.convert(anEth, anTokenAmount, 0);
         
-        //Repay DOLA IOUs
+        //Repay DOLA IOUs & whitelist gov address for transfers for testing purposes
         vm.startPrank(gov);
-        debtConverter.setExchangeRateIncrease(1e18);
+        debtConverter.whitelistTransferFor(gov);
         debtConverter.repayment(dolaAmount);
 
-        //Redeem DOLA IOUs on user
+        //transfer DOLA IOUs to gov. given 50e18 anTokenAmount, this will leave user with ~160 DOLA worth of IOUs
+        //  with ~200 DOLA being claimable. Intended behavior is to redeem all remaining IOUs
         vm.startPrank(user);
-        debtConverter.redeem(0, 0);
+        debtConverter.transfer(gov, ethFeed.latestAnswer() * 99/100 * 1e10);
+        uint dolaRedeemable = debtConverter.balanceOfDola(user);
+        debtConverter.redeemConversion(0);
 
-        (,,uint dolaRedeemablePerDolaOfDebt) = debtConverter.repayments(0);
-        (,,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
+        uint dolaRedeemed = IERC20(DOLA).balanceOf(user);
 
-        assert(IERC20(DOLA).balanceOf(user) >= dolaRedeemablePerDolaOfDebt * dolaAmountConverted / 1e18);
+        assert(debtConverter.balanceOf(user) == 0);
+        assert(dolaRedeemable == dolaRedeemed);
     }
 
     function testRepaymentAndRedeemConversion() public {
@@ -131,9 +142,7 @@ contract ContractTest is DSTest {
         //Repay DOLA IOUs
         vm.startPrank(gov);
         debtConverter.setExchangeRateIncrease(1e18);
-        for (uint i = 0; i < 4; i++) {
-            debtConverter.repayment(dolaAmount);
-        }
+        debtConverter.repayment(dolaAmount * 4);
 
         //Redeem DOLA IOUs on user
         vm.startPrank(user);
@@ -144,16 +153,165 @@ contract ContractTest is DSTest {
 
         vm.startPrank(user);
         debtConverter.redeemConversion(0);
+
+        (,,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
+
+        //scaled by 1001/1000 to add a 0.1% cushion & account for rounding
+        assert(IERC20(DOLA).balanceOf(user) * 1001/1000 >= dolaAmountConverted);
+        assert(IERC20(DOLA).balanceOf(user) <= dolaAmountConverted * 1001/1000);
+    }
+
+    function testRepaymentAndRedeemConversionWithMultipleAddressRepayments() public {
+        //Convert anETH to DOLA IOUs
+        gibAnTokens(user, anEth, anTokenAmount);
+
+        vm.startPrank(user);
+
+        IERC20(anEth).approve(address(debtConverter), anTokenAmount);
+        debtConverter.convert(anEth, anTokenAmount, 0);
+
+        uint epoch = debtConverter.repaymentEpoch();
+        //Repay DOLA IOUs on random address, this should not trigger epoch change.
+        vm.startPrank(user2);
+        gibDOLA(user2, dolaAmount);
+        IERC20(DOLA).approve(address(debtConverter), type(uint).max);
+        IERC20(DOLA).balanceOf(user2);
+        debtConverter.repayment(dolaAmount);
+        assert(epoch == debtConverter.repaymentEpoch());
+    
+        //Repay DOLA IOUs from gov address, this should trigger epoch change
+        epoch = debtConverter.repaymentEpoch();
+        vm.startPrank(gov);
+        debtConverter.repayment(dolaAmount * 4);
+        assert(epoch + 1 == debtConverter.repaymentEpoch());
+
+        //Redeem DOLA IOUs on user
+        vm.startPrank(user);
+        debtConverter.redeemConversion(0);
+
+        vm.startPrank(gov);
+        debtConverter.repayment(debtConverter.outstandingDebt());
+
+        vm.startPrank(user);
+        debtConverter.redeemConversion(0);
+
+        (,,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
+
+        //scaled by 1001/1000 to add a 0.1% cushion & account for rounding
+        assert(IERC20(DOLA).balanceOf(user) * 1001/1000 >= dolaAmountConverted);
+        assert(IERC20(DOLA).balanceOf(user) <= dolaAmountConverted * 1001/1000);
+    }
+
+    function testRepaymentAndRedeemConversionMultipleAddresses() public {
+        //Convert anETH to DOLA IOUs
+        gibAnTokens(user, anEth, anTokenAmount);
+        gibAnTokens(user2, anBtc, anBtcAmount);
+
+        vm.startPrank(user);
+
+        IERC20(anEth).approve(address(debtConverter), anTokenAmount);
+        debtConverter.convert(anEth, anTokenAmount, 0);
+
+        vm.startPrank(user2);
+
+        IERC20(anBtc).approve(address(debtConverter), anBtcAmount);
+        debtConverter.convert(anBtc, anBtcAmount, 0);
+        
+        //Repay DOLA IOUs
+        vm.startPrank(gov);
+        debtConverter.setExchangeRateIncrease(1e18);
+        debtConverter.repayment(dolaAmount * 4);
+
+        //Redeem DOLA IOUs for both users
+        vm.startPrank(user);
+        debtConverter.redeemConversion(0);
+        vm.startPrank(user2);
+        debtConverter.redeemConversion(0);
+
+        vm.startPrank(gov);
+        debtConverter.repayment(debtConverter.outstandingDebt());
+
+        vm.startPrank(user);
+        debtConverter.redeemConversion(0);
+        vm.startPrank(user2);
         debtConverter.redeemConversion(0);
 
         (,,uint dolaRedeemablePerDolaOfDebt) = debtConverter.repayments(0);
-        (,uint dolaAmountConverted,,) = debtConverter.conversions(user, 0);
+        (,,uint dolaRedeemableOne) = debtConverter.repayments(1);
+        (,,uint dolaAmountConvertedUser,) = debtConverter.conversions(user, 0);
+        (,,uint dolaAmountConvertedUser2,) = debtConverter.conversions(user2, 0);
 
-        assert(IERC20(DOLA).balanceOf(user) >= dolaRedeemablePerDolaOfDebt * dolaAmountConverted / 1e18);
+        dolaRedeemablePerDolaOfDebt += dolaRedeemableOne;
+
+        //scaled by 1001/1000 to add a 0.1% cushion & account for rounding
+        assert(IERC20(DOLA).balanceOf(user) * 1001/1000 >= dolaAmountConvertedUser);
+        assert(IERC20(DOLA).balanceOf(user) <= dolaAmountConvertedUser * 1001/1000);
+        assert(IERC20(DOLA).balanceOf(user2) * 1001/1000 >= dolaAmountConvertedUser2);
+        assert(IERC20(DOLA).balanceOf(user2) <= dolaAmountConvertedUser2 * 1001/1000);
+    }
+
+    function testRepaymentAndRedeemConversionMultipleAddressesStaggered() public {
+        //Convert anETH to DOLA IOUs
+        gibAnTokens(user, anEth, anTokenAmount);
+        gibAnTokens(user2, anBtc, anBtcAmount);
+
+        vm.startPrank(user);
+
+        IERC20(anEth).approve(address(debtConverter), anTokenAmount);
+        debtConverter.convert(anEth, anTokenAmount, 0);
+        
+        //Repay DOLA IOUs
+        vm.startPrank(gov);
+        debtConverter.setExchangeRateIncrease(1e18);
+        debtConverter.repayment(dolaAmount * 2);
+
+        vm.startPrank(user2);
+
+        IERC20(anBtc).approve(address(debtConverter), anBtcAmount);
+        debtConverter.convert(anBtc, anBtcAmount, 0);
+
+        vm.startPrank(gov);
+        debtConverter.repayment(dolaAmount * 2);
+
+        //Redeem DOLA IOUs for both users
+        (,,uint dolaRedeemablePerDolaOfDebt) = debtConverter.repayments(0);
+        (,,uint dolaRedeemableOne) = debtConverter.repayments(1);
+        (,,uint dolaAmountConvertedUser,) = debtConverter.conversions(user, 0);
+        (,,uint dolaAmountConvertedUser2,) = debtConverter.conversions(user2, 0);
+        IERC20(DOLA).balanceOf(address(debtConverter));
+        vm.startPrank(user);
+        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(0);
+        vm.startPrank(user2);
+        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(0);
+
+        vm.startPrank(gov);
+        debtConverter.repayment(debtConverter.outstandingDebt());
+
+        vm.startPrank(user);
+        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(0);
+        vm.startPrank(user2);
+        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(0);
+
+        
+        (,,uint dolaRedeemableTwo) = debtConverter.repayments(2);
+
+        dolaRedeemablePerDolaOfDebt += dolaRedeemableOne + dolaRedeemableTwo;
+
+        //scaled by 1001/1000 to add a 0.1% cushion & account for rounding
+        debtConverter.outstandingDebt();
+        IERC20(DOLA).balanceOf(address(debtConverter));
+        assert(IERC20(DOLA).balanceOf(user) * 1001/1000 >= dolaAmountConvertedUser);
+        assert(IERC20(DOLA).balanceOf(user) <= dolaAmountConvertedUser * 1001/1000);
+        assert(IERC20(DOLA).balanceOf(user2) * 1001/1000 >= dolaAmountConvertedUser2);
+        assert(IERC20(DOLA).balanceOf(user2) <= dolaAmountConvertedUser2 * 1001/1000);
     }
 
     function testRedeemMultipleConversions() public {
-        //Convert anETH to DOLA IOUs
+        //Convert anETH & anYfi to DOLA IOUs
         gibAnTokens(user, anEth, anTokenAmount);
         gibAnTokens(user, anYfi, anTokenAmount);
 
@@ -167,115 +325,35 @@ contract ContractTest is DSTest {
         //Repay DOLA IOUs
         vm.startPrank(gov);
         debtConverter.setExchangeRateIncrease(1e18);
-        for (uint i = 0; i < 4; i++) {
-            debtConverter.repayment(dolaAmount * 2);
-        }
+        debtConverter.repayment(dolaAmount * 8);
 
-        //Redeem DOLA IOUs on user
+        //Redeem DOLA IOUs on user for both conversions
         vm.startPrank(user);
         debtConverter.redeemConversion(0);
+        IERC20(DOLA).balanceOf(address(debtConverter));
         debtConverter.redeemConversion(1);
 
+        //Repay all outstanding DOLA debt
         vm.startPrank(gov);
         debtConverter.repayment(debtConverter.outstandingDebt());
 
+        //Redeem DOLA IOUs for both conversions again
         vm.startPrank(user);
-        debtConverter.redeemConversion(0);
-        debtConverter.redeemConversion(1);
         debtConverter.redeemConversion(0);
         debtConverter.redeemConversion(1);
 
         (,,uint dolaRedeemablePerDolaOfDebt) = debtConverter.repayments(0);
-        (,uint dolaAmountConverted,,) = debtConverter.conversions(user, 0);
+        (,,uint dolaRedeemablePerDolaOne) = debtConverter.repayments(1);
+        (,,uint dolaAmountConvertedTotal,) = debtConverter.conversions(user, 0);
+        (,,uint dolaAmountConvertedYfi,) = debtConverter.conversions(user, 1);
 
-        assert(IERC20(DOLA).balanceOf(user) >= dolaRedeemablePerDolaOfDebt * dolaAmountConverted / 1e18);
-    }
+        dolaRedeemablePerDolaOfDebt += dolaRedeemablePerDolaOne;
+        dolaAmountConvertedTotal += dolaAmountConvertedYfi;
 
-    function testRedeemFailsForEpochBeforeConversion() public {
-        //Convert so there is outstandingDebt in the contract
-        gibAnTokens(user, anEth, anTokenAmount * 3);
-
-        vm.startPrank(user);
-        IERC20(anEth).approve(address(debtConverter), type(uint).max);
-        debtConverter.convert(anEth, anTokenAmount, 0);
-
-        vm.startPrank(gov);
-        debtConverter.repayment(dolaAmount);
-
-        vm.startPrank(user);
-        debtConverter.convert(anEth, anTokenAmount, 0);
-
-        vm.startPrank(gov);
-        debtConverter.repayment(dolaAmount);
-
-        //Attempt to redeem DOLA IOUs from user's 2nd conversion for first repayment epoch, should fail
-        vm.startPrank(user);
-        vm.expectRevert(ConversionOccurredAfterGivenEpoch.selector);
-        debtConverter.redeem(1, 0);
-    }
-    
-    function testRedeemFailsIfUserHasClaimedAllDolaForConversion() public {
-        //Convert so there is outstandingDebt in the contract
-        gibAnTokens(user, anEth, anTokenAmount);
-        gibAnTokens(user2, anEth, anTokenAmount * 3);
-
-        vm.startPrank(user2);
-        IERC20(anEth).approve(address(debtConverter), type(uint).max);
-        debtConverter.convert(anEth, anTokenAmount, 0);
-
-        vm.startPrank(user);
-        IERC20(anEth).approve(address(debtConverter), type(uint).max);
-        debtConverter.convert(anEth, anTokenAmount, 0);
-
-        vm.startPrank(gov);
-        for (uint i = 0; i < 10; i++) {
-            debtConverter.repayment(dolaAmount);
-        }
-
-        vm.startPrank(user);
-        for (uint i = 0; i < 10; i++) {
-            debtConverter.redeem(0, i);
-        }
-
-        vm.startPrank(user2);
-        IERC20(anEth).approve(address(debtConverter), type(uint).max);
-        debtConverter.convert(anEth, anTokenAmount * 2, 0);
-
-        vm.startPrank(gov);
-        for (uint i = 0; i < 10; i++) {
-            debtConverter.repayment(dolaAmount * 2);
-        }
-
-        //Attempt to redeem DOLA IOUs from user's 2nd conversion for first repayment epoch, should fail
-        vm.startPrank(user);
-
-        for (uint i = 10; i < 20; i++) {
-            (,,uint dolaAmountConverted, uint dolaAmountRedeemed) = debtConverter.conversions(user, 0);
-            uint dolaToBeRedeemed = debtConverter.getRedeemableDolaForEpoch(user, 0, i);
-            if (dolaAmountConverted < dolaToBeRedeemed + dolaAmountRedeemed) {
-                vm.expectRevert(InsufficientDolaIOUs.selector);
-            }
-            debtConverter.redeem(0, i);
-            // emit log_named_uint("DOLA balance of user", IERC20(DOLA).balanceOf(user));
-        }
-    }
-
-    function testRedeemFailsForEpochThatHasAlreadyBeenRedeemed() public {
-        //Convert so there is outstandingDebt in the contract
-        gibAnTokens(user, anEth, anTokenAmount);
-
-        vm.startPrank(user);
-        IERC20(anEth).approve(address(debtConverter), type(uint).max);
-        debtConverter.convert(anEth, anTokenAmount, 0);
-
-        vm.startPrank(gov);
-        debtConverter.repayment(dolaAmount);
-
-        //Attempt to redeem DOLA IOUs from user's 2nd conversion for first repayment epoch, should fail
-        vm.startPrank(user);
-        debtConverter.redeem(0, 0);
-        vm.expectRevert(AlreadyRedeemedThisEpoch.selector);
-        debtConverter.redeem(0, 0);
+        //User should have all of their converted DOLA redeemed at this point.
+        //  scaled by 1001/1000 to add a 0.1% cushion & account for rounding
+        assert(IERC20(DOLA).balanceOf(user) * 1001 / 1000 >= dolaAmountConvertedTotal);
+        assert(IERC20(DOLA).balanceOf(user) <= dolaAmountConvertedTotal * 1001 / 1000);
     }
 
     function testAccrueInterest() public {
@@ -290,10 +368,8 @@ contract ContractTest is DSTest {
         debtConverter.accrueInterest();
         uint postRate = debtConverter.exchangeRateMantissa();
 
-        emit log_named_uint("prevRate", prevRate);
-        emit log_named_uint("postRate", postRate);
-
         assert(postRate > prevRate + increase);
+        assert(postRate < prevRate * 202/100);
     }
 
     function testTransferFailsWhenToAddressIsNotWhitelisted() public {
@@ -343,6 +419,8 @@ contract ContractTest is DSTest {
         assert(prevBal + amount == IERC20(DOLA).balanceOf(treasury));
     }
 
+    // Access Control
+
     function testSetExchangeRateIncreaseNotCallableByNonOwner() public {
         vm.startPrank(user);
 
@@ -371,6 +449,8 @@ contract ContractTest is DSTest {
         debtConverter.whitelistTransferFor(user);
     }
 
+    //Helper Functions
+
     function gibAnTokens(address _user, address _anToken, uint _amount) internal {
         bytes32 slot;
         assembly {
@@ -386,7 +466,7 @@ contract ContractTest is DSTest {
         bytes32 slot;
         assembly {
             mstore(0, _user)
-            mstore(0x20, 0x0)
+            mstore(0x20, 0x6)
             slot := keccak256(0, 0x40)
         }
 
