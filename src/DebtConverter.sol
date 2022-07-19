@@ -82,11 +82,9 @@ contract DebtConverter is ERC20 {
     }
 
     struct ConversionData {
-        uint epoch;
         uint lastEpochRedeemed;
         uint dolaAmount;
         uint dolaRedeemed;
-        mapping(uint => bool) epochRedeemed;
     }
 
     constructor(address _owner, address _treasury, address _oracle) ERC20("DOLA IOU", "DOLAIOU") {
@@ -132,12 +130,11 @@ contract DebtConverter is ERC20 {
         cumDebt += dolaValueOfDebt;
 
         uint epoch = repaymentEpoch;
-        uint idx = conversions[msg.sender].length;
-        conversions[msg.sender].push();
-        ConversionData storage c = conversions[msg.sender][idx];
-        c.epoch = epoch;
+        ConversionData memory c;
         c.dolaAmount = dolaValueOfDebt;
         c.lastEpochRedeemed = epoch;
+
+        conversions[msg.sender].push(c);
 
         _mint(msg.sender, dolaIOUsOwed);
         require(IERC20(anToken).transferFrom(msg.sender, address(this), amount), "failed to transfer anTokens");
@@ -261,7 +258,7 @@ contract DebtConverter is ERC20 {
      * @param _epoch repayment epoch to calculate redeemable DOLA of
      */
     function getRedeemableDolaFor(address _addr, uint _conversion, uint _epoch) public view returns (uint) {
-        ConversionData storage c = conversions[_addr][_conversion];
+        ConversionData memory c = conversions[_addr][_conversion];
         uint userRedeemedDola =c.dolaRedeemed;
         uint userConvertedDebt = c.dolaAmount;
         uint dolaRemaining = userConvertedDebt - userRedeemedDola;

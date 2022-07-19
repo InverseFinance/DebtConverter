@@ -154,7 +154,7 @@ contract ContractTest is DSTest {
         vm.startPrank(user);
         debtConverter.redeemConversion(0);
 
-        (,,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
+        (,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
 
         //scaled by 1001/1000 to add a 0.1% cushion & account for rounding
         assert(IERC20(DOLA).balanceOf(user) * 1001/1000 >= dolaAmountConverted);
@@ -195,7 +195,7 @@ contract ContractTest is DSTest {
         vm.startPrank(user);
         debtConverter.redeemConversion(0);
 
-        (,,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
+        (,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
 
         //scaled by 1001/1000 to add a 0.1% cushion & account for rounding
         assert(IERC20(DOLA).balanceOf(user) * 1001/1000 >= dolaAmountConverted);
@@ -238,8 +238,8 @@ contract ContractTest is DSTest {
 
         (,,uint dolaRedeemablePerDolaOfDebt) = debtConverter.repayments(0);
         (,,uint dolaRedeemableOne) = debtConverter.repayments(1);
-        (,,uint dolaAmountConvertedUser,) = debtConverter.conversions(user, 0);
-        (,,uint dolaAmountConvertedUser2,) = debtConverter.conversions(user2, 0);
+        (,uint dolaAmountConvertedUser,) = debtConverter.conversions(user, 0);
+        (,uint dolaAmountConvertedUser2,) = debtConverter.conversions(user2, 0);
 
         dolaRedeemablePerDolaOfDebt += dolaRedeemableOne;
 
@@ -276,8 +276,8 @@ contract ContractTest is DSTest {
         //Redeem DOLA IOUs for both users
         (,,uint dolaRedeemablePerDolaOfDebt) = debtConverter.repayments(0);
         (,,uint dolaRedeemableOne) = debtConverter.repayments(1);
-        (,,uint dolaAmountConvertedUser,) = debtConverter.conversions(user, 0);
-        (,,uint dolaAmountConvertedUser2,) = debtConverter.conversions(user2, 0);
+        (,uint dolaAmountConvertedUser,) = debtConverter.conversions(user, 0);
+        (,uint dolaAmountConvertedUser2,) = debtConverter.conversions(user2, 0);
         IERC20(DOLA).balanceOf(address(debtConverter));
         vm.startPrank(user);
         debtConverter.redeemConversion(0);
@@ -304,6 +304,8 @@ contract ContractTest is DSTest {
         //scaled by 1001/1000 to add a 0.1% cushion & account for rounding
         debtConverter.outstandingDebt();
         IERC20(DOLA).balanceOf(address(debtConverter));
+        IERC20(DOLA).balanceOf(user2);
+        emit log_uint(dolaAmountConvertedUser2);
         assert(IERC20(DOLA).balanceOf(user) * 1001/1000 >= dolaAmountConvertedUser);
         assert(IERC20(DOLA).balanceOf(user) <= dolaAmountConvertedUser * 1001/1000);
         assert(IERC20(DOLA).balanceOf(user2) * 1001/1000 >= dolaAmountConvertedUser2);
@@ -344,8 +346,8 @@ contract ContractTest is DSTest {
 
         (,,uint dolaRedeemablePerDolaOfDebt) = debtConverter.repayments(0);
         (,,uint dolaRedeemablePerDolaOne) = debtConverter.repayments(1);
-        (,,uint dolaAmountConvertedTotal,) = debtConverter.conversions(user, 0);
-        (,,uint dolaAmountConvertedYfi,) = debtConverter.conversions(user, 1);
+        (,uint dolaAmountConvertedTotal,) = debtConverter.conversions(user, 0);
+        (,uint dolaAmountConvertedYfi,) = debtConverter.conversions(user, 1);
 
         dolaRedeemablePerDolaOfDebt += dolaRedeemablePerDolaOne;
         dolaAmountConvertedTotal += dolaAmountConvertedYfi;
