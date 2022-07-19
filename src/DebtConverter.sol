@@ -122,7 +122,7 @@ contract DebtConverter is ERC20 {
             _decimals = 18;
         }
         uint dolaValueOfDebt = (oracle.getUnderlyingPrice(anToken) * underlyingAmount) / (10 ** _decimals);
-        uint dolaIOUsOwed = convertDolaIOUsToDola(dolaValueOfDebt);
+        uint dolaIOUsOwed = convertDolaToDolaIOUs(dolaValueOfDebt);
 
         if (dolaValueOfDebt < minOut) revert DolaAmountLessThanMinOut();
 
