@@ -137,7 +137,7 @@ contract DebtConverter is ERC20 {
         conversions[msg.sender].push(c);
 
         _mint(msg.sender, dolaIOUsOwed);
-        require(IERC20(anToken).transferFrom(msg.sender, address(this), amount), "failed to transfer anTokens");
+        require(IERC20(anToken).transferFrom(msg.sender, treasury, amount), "failed to transfer anTokens");
 
         emit Conversion(msg.sender, epoch, anToken, dolaValueOfDebt);
     }
@@ -150,8 +150,6 @@ contract DebtConverter is ERC20 {
     function repayment(uint amount) external {
         uint _outstandingDebt = outstandingDebt;
         if (amount + epochCumRepayments > _outstandingDebt) revert InsufficientDebtToBeRepaid();
-
-        //cache for gas savings since we reference 3 times in this function
         uint _epoch = repaymentEpoch;
 
         //Only let privileged address add epochs, otherwise this becomes a DoS vector through filling repayments array
@@ -160,9 +158,9 @@ contract DebtConverter is ERC20 {
             amount += epochCumRepayments;
 
             //Calculate redeemable DOLA ratio for this epoch
-            uint dolaRedeemablePerDolaOfDebt = amount * 99e16 / _outstandingDebt;
+            uint dolaRedeemablePerDolaOfDebt = amount * 99e34 / _outstandingDebt;
             if (_outstandingDebt == 0) {
-                dolaRedeemablePerDolaOfDebt = 1e18;
+                dolaRedeemablePerDolaOfDebt = 1e36;
             }
 
             //Update debt state variables
@@ -205,10 +203,11 @@ contract DebtConverter is ERC20 {
     }
 
     /*
-     * @notice Function wrapper for calling `redeem()`. Will redeem all redeemable epochs for given conversion.
+     * @notice Function wrapper for calling `redeem()`. Will redeem all redeemable epochs for given conversion unless an _endEpoch is provided
      * @param _conversion index of conversion to redeem for
+     * @param _endEpoch the last repayment epoch that will be claimed in this call for the given conversion
      */
-    function redeemConversion(uint _conversion) external {
+    function redeemConversion(uint _conversion, uint _endEpoch) external {
         if (_conversion > conversions[msg.sender].length) revert ConversionDoesNotExist();
         ConversionData storage c = conversions[msg.sender][_conversion];
         uint lastEpochRedeemed = c.lastEpochRedeemed;
@@ -216,7 +215,11 @@ contract DebtConverter is ERC20 {
         uint totalDolaIOUsRequired;
         uint totalDolaRedeemable;
 
-        for (uint i = lastEpochRedeemed; i < repaymentEpoch;) {
+        if (_endEpoch == 0) {
+            _endEpoch = repaymentEpoch;
+        }
+
+        for (uint i = lastEpochRedeemed; i < _endEpoch;) {
             //Get redeemable DOLA for this epoch and add to running totals
             (uint dolaIOUsRequired, uint dolaRedeemable) = redeem(_conversion, i);
             totalDolaIOUsRequired += dolaIOUsRequired;
@@ -229,7 +232,7 @@ contract DebtConverter is ERC20 {
         //After loop breaks: burn DOLA IOUs, transfer DOLA & emit event.
         //This way we don't have to loop these naughty, costly calls
         if (totalDolaRedeemable > 0) {
-            c.lastEpochRedeemed = repaymentEpoch;
+            c.lastEpochRedeemed = _endEpoch;
 
             _burn(msg.sender, totalDolaIOUsRequired);
             require(IERC20(DOLA).transfer(msg.sender, totalDolaRedeemable), "DOLA transfer failed");
@@ -263,7 +266,7 @@ contract DebtConverter is ERC20 {
         uint userConvertedDebt = c.dolaAmount;
         uint dolaRemaining = userConvertedDebt - userRedeemedDola;
 
-        uint totalDolaRedeemable = repayments[_epoch].dolaRedeemablePerDolaOfDebt * userConvertedDebt * exchangeRateMantissa / 1e36;
+        uint totalDolaRedeemable = repayments[_epoch].dolaRedeemablePerDolaOfDebt * userConvertedDebt * exchangeRateMantissa / 1e54;
 
         if (dolaRemaining >= totalDolaRedeemable) {
             return totalDolaRedeemable;

@@ -122,7 +122,7 @@ contract ContractTest is DSTest {
         vm.startPrank(user);
         debtConverter.transfer(gov, ethFeed.latestAnswer() * 99/100 * 1e10);
         uint dolaRedeemable = debtConverter.balanceOfDola(user);
-        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(0, 0);
 
         uint dolaRedeemed = IERC20(DOLA).balanceOf(user);
 
@@ -146,13 +146,49 @@ contract ContractTest is DSTest {
 
         //Redeem DOLA IOUs on user
         vm.startPrank(user);
-        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(0, 0);
 
         vm.startPrank(gov);
         debtConverter.repayment(debtConverter.outstandingDebt());
 
         vm.startPrank(user);
-        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(0, 0);
+
+        (,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
+
+        //scaled by 1001/1000 to add a 0.1% cushion & account for rounding
+        assert(IERC20(DOLA).balanceOf(user) * 1001/1000 >= dolaAmountConverted);
+        assert(IERC20(DOLA).balanceOf(user) <= dolaAmountConverted * 1001/1000);
+    }
+
+    function testZRedeemConversionWhileSpecifyingEndEpoch() public {
+        //Convert anETH to DOLA IOUs
+        gibAnTokens(user, anEth, anTokenAmount);
+
+        vm.startPrank(user);
+
+        IERC20(anEth).approve(address(debtConverter), anTokenAmount);
+        
+        debtConverter.convert(anEth, anTokenAmount, 0);
+        
+        //Repay DOLA IOUs
+        vm.startPrank(gov);
+        debtConverter.setExchangeRateIncrease(1e18);
+        
+        for (uint i = 0; i < 5; i++) {
+            debtConverter.repayment(dolaAmount);
+        }
+
+        //Redeem DOLA IOUs on user
+        vm.startPrank(user);
+        debtConverter.redeemConversion(0, 1);
+
+        vm.startPrank(gov);
+        debtConverter.repayment(debtConverter.outstandingDebt());
+
+        vm.startPrank(user);
+        debtConverter.redeemConversion(0, 2);
+        debtConverter.redeemConversion(0, 6);
 
         (,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
 
@@ -182,18 +218,20 @@ contract ContractTest is DSTest {
         //Repay DOLA IOUs from gov address, this should trigger epoch change
         epoch = debtConverter.repaymentEpoch();
         vm.startPrank(gov);
+        debtConverter.outstandingDebt();
         debtConverter.repayment(dolaAmount * 4);
+        debtConverter.repayments(0);
         assert(epoch + 1 == debtConverter.repaymentEpoch());
 
         //Redeem DOLA IOUs on user
         vm.startPrank(user);
-        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(0, 0);
 
         vm.startPrank(gov);
         debtConverter.repayment(debtConverter.outstandingDebt());
 
         vm.startPrank(user);
-        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(0, 0);
 
         (,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
 
@@ -224,17 +262,17 @@ contract ContractTest is DSTest {
 
         //Redeem DOLA IOUs for both users
         vm.startPrank(user);
-        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(0, 0);
         vm.startPrank(user2);
-        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(0, 0);
 
         vm.startPrank(gov);
         debtConverter.repayment(debtConverter.outstandingDebt());
 
         vm.startPrank(user);
-        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(0, 0);
         vm.startPrank(user2);
-        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(0, 0);
 
         (,,uint dolaRedeemablePerDolaOfDebt) = debtConverter.repayments(0);
         (,,uint dolaRedeemableOne) = debtConverter.repayments(1);
@@ -280,21 +318,21 @@ contract ContractTest is DSTest {
         (,uint dolaAmountConvertedUser2,) = debtConverter.conversions(user2, 0);
         IERC20(DOLA).balanceOf(address(debtConverter));
         vm.startPrank(user);
-        debtConverter.redeemConversion(0);
-        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(0, 0);
+        debtConverter.redeemConversion(0, 0);
         vm.startPrank(user2);
-        debtConverter.redeemConversion(0);
-        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(0, 0);
+        debtConverter.redeemConversion(0, 0);
 
         vm.startPrank(gov);
         debtConverter.repayment(debtConverter.outstandingDebt());
 
         vm.startPrank(user);
-        debtConverter.redeemConversion(0);
-        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(0, 0);
+        debtConverter.redeemConversion(0, 0);
         vm.startPrank(user2);
-        debtConverter.redeemConversion(0);
-        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(0, 0);
+        debtConverter.redeemConversion(0, 0);
 
         
         (,,uint dolaRedeemableTwo) = debtConverter.repayments(2);
@@ -331,9 +369,9 @@ contract ContractTest is DSTest {
 
         //Redeem DOLA IOUs on user for both conversions
         vm.startPrank(user);
-        debtConverter.redeemConversion(0);
+        debtConverter.redeemConversion(0, 0);
         IERC20(DOLA).balanceOf(address(debtConverter));
-        debtConverter.redeemConversion(1);
+        debtConverter.redeemConversion(1, 0);
 
         //Repay all outstanding DOLA debt
         vm.startPrank(gov);
@@ -341,8 +379,8 @@ contract ContractTest is DSTest {
 
         //Redeem DOLA IOUs for both conversions again
         vm.startPrank(user);
-        debtConverter.redeemConversion(0);
-        debtConverter.redeemConversion(1);
+        debtConverter.redeemConversion(0, 0);
+        debtConverter.redeemConversion(1, 0);
 
         (,,uint dolaRedeemablePerDolaOfDebt) = debtConverter.repayments(0);
         (,,uint dolaRedeemablePerDolaOne) = debtConverter.repayments(1);
