@@ -180,9 +180,11 @@ contract ContractTest is DSTest {
         IERC20(anEth).approve(address(debtConverter), anTokenAmount);
         debtConverter.convert(anEth, anTokenAmount, 0);
         
+        vm.stopPrank();
         vm.startPrank(gov);
         debtConverter.repayment(debtConverter.outstandingDebt());
 
+        vm.stopPrank();
         vm.startPrank(user);
 
         vm.expectRevert(ConversionEpochNotEqualToCurrentEpoch.selector);
@@ -198,9 +200,11 @@ contract ContractTest is DSTest {
         IERC20(anEth).approve(address(debtConverter), anTokenAmount);
         debtConverter.convert(anEth, anTokenAmount, 0);
         
+        vm.stopPrank();
         vm.startPrank(gov);
         debtConverter.repayment(debtConverter.outstandingDebt() * 98e18/100e18);
 
+        vm.stopPrank();
         vm.startPrank(user);
         debtConverter.redeemConversion(0, 0);
 
