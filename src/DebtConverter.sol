@@ -119,9 +119,11 @@ contract DebtConverter is ERC20 {
 
         //Calculate DOLA/DOLA IOU amounts owed. `amount` * underlying price of anToken cancels out decimals
         uint _decimals = 18;
+        /*
         if (anToken == anBtc) {
             _decimals = 8;
         }
+        */
         uint dolaValueOfDebt = (oracle.getUnderlyingPrice(anToken) * amount) / (10 ** _decimals);
         uint dolaIOUsOwed = convertDolaToDolaIOUs(dolaValueOfDebt);
 
@@ -160,7 +162,7 @@ contract DebtConverter is ERC20 {
             amount += epochCumRepayments;
 
             //Calculate redeemable DOLA ratio for this epoch
-            uint dolaRedeemablePerDolaOfDebt = amount * 99e34 / _outstandingDebt;
+            uint dolaRedeemablePerDolaOfDebt = amount * 1e36 / _outstandingDebt;
             if (_outstandingDebt == 0) {
                 dolaRedeemablePerDolaOfDebt = 1e36;
             }
