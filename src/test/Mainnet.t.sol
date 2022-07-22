@@ -226,7 +226,7 @@ contract ContractTest is DSTest {
         assert(userBalPrev == IERC20(DOLA).balanceOf(user));
     }
 
-    function testRepaymentAndRedeemConversionWith260WeeklyRepayments() public {
+    function testRepaymentAndRedeemConversionWithDoubleRedemptions() public {
         //Convert anETH to DOLA IOUs
         gibAnTokens(user, anEth, anTokenAmount);
 
@@ -237,21 +237,23 @@ contract ContractTest is DSTest {
 
         vm.stopPrank();
         vm.startPrank(gov);
-        uint debtService = debtConverter.outstandingDebt() / 260;
-        for(uint i = 0; i < 260; i++){
-            debtConverter.repayment(debtService);
-        }
+        debtConverter.repayment(debtConverter.outstandingDebt());
 
         vm.stopPrank();
         vm.startPrank(user);
         emit log_uint(IERC20(DOLA).balanceOf(address(debtConverter)));
         debtConverter.redeemConversion(0, 0);
+        uint dolaBalance = IERC20(DOLA).balanceOf(user);
+        uint dolaIOUBalance = IERC20(address(debtConverter)).balanceOf(user); 
+        debtConverter.redeemConversion(0, 0);
 
         (,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
 
+        assertEq(IERC20(DOLA).balanceOf(user), dolaBalance, "Dola balance changed after second redemption");
+        assertEq(IERC20(address(debtConverter)).balanceOf(user), dolaIOUBalance, "Dola IOU balance changed after second redemption");
         //scaled by 1001/1000 to add a 0.1% cushion & account for rounding
-        assert(IERC20(DOLA).balanceOf(user) * 1001/1000 >= dolaAmountConverted);
-        assert(IERC20(DOLA).balanceOf(user) <= dolaAmountConverted * 1001/1000);
+        assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, dolaAmountConverted, "Balance less than 99.9% of dolaAmountConverted");
+        assertLe(IERC20(DOLA).balanceOf(user), dolaAmountConverted * 1001/1000, "Balance less than 99.9% of dolaAmountConverted");
     }
 
     function testRepaymentAndRedeemConversionWithNWeeklyRepayments(uint8 _repayments) public {
