@@ -65,6 +65,7 @@ contract DebtConverter is ERC20 {
     error DolaAmountLessThanMinOut();
     error InsufficientDebtToBeRepaid();
     error ConversionDoesNotExist();
+    error ConversionEpochNotEqualToCurrentEpoch();
 
     //Events
     event NewOwner(address owner);
@@ -232,12 +233,46 @@ contract DebtConverter is ERC20 {
         //After loop breaks: burn DOLA IOUs, transfer DOLA & emit event.
         //This way we don't have to loop these naughty, costly calls
         if (totalDolaRedeemable > 0) {
+            //Handles rounding errors. Will only allow max redemption equal to DOLA balance of this contract
+            //User will be able to redeem using this conversion after another repayment to collect their dust
+            uint dolaBal = IERC20(DOLA).balanceOf(address(this));
+            if (totalDolaRedeemable > dolaBal) {
+                //Subtract DOLA difference from dolaRedeemed on this conversion object
+                //This way, the user will be able to claim their dust on the next repayment & call to `redeemConversion`
+                c.dolaRedeemed -= (totalDolaRedeemable - dolaBal);
+                totalDolaRedeemable = dolaBal;
+                totalDolaIOUsRequired = convertDolaToDolaIOUs(totalDolaRedeemable);
+            }
+
             c.lastEpochRedeemed = _endEpoch;
 
             _burn(msg.sender, totalDolaIOUsRequired);
             require(IERC20(DOLA).transfer(msg.sender, totalDolaRedeemable), "DOLA transfer failed");
             
             emit Redemption(msg.sender, totalDolaRedeemable);
+        }
+    }
+
+    /*
+     * @notice Redeems all DOLA "dust" leftover from rounding errors.
+     * @notice Only redeemable if conversion's lastEpochRedeemed is equal to current repaymentEpoch.
+     * Simply call `redeemConversion()` to update your conversions' lastEpochRedeemed
+     * @param _conversion index of conversion to redeem dust for
+     */
+    function redeemConversionDust(uint _conversion) external {
+        ConversionData memory c = conversions[msg.sender][_conversion];
+        if (c.lastEpochRedeemed != repaymentEpoch) revert ConversionEpochNotEqualToCurrentEpoch();
+        uint dolaLeftToRedeem = c.dolaAmount - c.dolaRedeemed;
+        uint redeemablePct = dolaLeftToRedeem * 1e18 / c.dolaRedeemed;
+
+        //1.2%
+        uint dolaBal = IERC20(DOLA).balanceOf(address(this));
+        if (redeemablePct <= .012e18 && dolaLeftToRedeem <= dolaBal) {
+            conversions[msg.sender][_conversion].dolaRedeemed += dolaLeftToRedeem;
+
+            _burn(msg.sender, convertDolaToDolaIOUs(dolaLeftToRedeem));
+            require(IERC20(DOLA).transfer(msg.sender, dolaLeftToRedeem), "DOLA transfer failed");
+            emit Redemption(msg.sender, dolaLeftToRedeem);
         }
     }
 
@@ -266,7 +301,7 @@ contract DebtConverter is ERC20 {
         uint userConvertedDebt = c.dolaAmount;
         uint dolaRemaining = userConvertedDebt - userRedeemedDola;
 
-        uint totalDolaRedeemable = repayments[_epoch].dolaRedeemablePerDolaOfDebt * userConvertedDebt * exchangeRateMantissa / 1e54;
+        uint totalDolaRedeemable = (repayments[_epoch].dolaRedeemablePerDolaOfDebt * userConvertedDebt / 1e36) * exchangeRateMantissa / 1e18;
 
         if (dolaRemaining >= totalDolaRedeemable) {
             return totalDolaRedeemable;
