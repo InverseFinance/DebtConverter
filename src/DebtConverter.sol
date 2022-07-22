@@ -116,13 +116,12 @@ contract DebtConverter is ERC20 {
         //Accrue interest so exchange rates are fresh
         accrueInterest();
 
-        //Calculate DOLA/DOLA IOU amounts owed. `underlyingAmount` * underlying price of anToken cancels out decimals
-        uint underlyingAmount = ICToken(anToken).balanceOfUnderlying(msg.sender);
-        uint _decimals = 28;
+        //Calculate DOLA/DOLA IOU amounts owed. `amount` * underlying price of anToken cancels out decimals
+        uint _decimals = 18;
         if (anToken == anBtc) {
-            _decimals = 18;
+            _decimals = 8;
         }
-        uint dolaValueOfDebt = (oracle.getUnderlyingPrice(anToken) * underlyingAmount) / (10 ** _decimals);
+        uint dolaValueOfDebt = (oracle.getUnderlyingPrice(anToken) * amount) / (10 ** _decimals);
         uint dolaIOUsOwed = convertDolaToDolaIOUs(dolaValueOfDebt);
 
         if (dolaValueOfDebt < minOut) revert DolaAmountLessThanMinOut();
@@ -149,6 +148,7 @@ contract DebtConverter is ERC20 {
      * @param amount Amount of DOLA to repay & transfer to this contract.
      */
     function repayment(uint amount) external {
+        if(amount == 0) return;
         uint _outstandingDebt = outstandingDebt;
         if (amount + epochCumRepayments > _outstandingDebt) revert InsufficientDebtToBeRepaid();
         uint _epoch = repaymentEpoch;
