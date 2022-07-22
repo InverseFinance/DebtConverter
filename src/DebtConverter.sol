@@ -61,6 +61,7 @@ contract DebtConverter is ERC20 {
     error TransferToAddressNotWhitelisted();
     error OnlyOwner();
     error InsufficientDebtTokens();
+    error InsufficientTreasuryFunds(uint needed, uint actual);
     error InvalidDebtToken();
     error DolaAmountLessThanMinOut();
     error InsufficientDebtToBeRepaid();
@@ -177,7 +178,12 @@ contract DebtConverter is ERC20 {
         }
         
         accrueInterest();
-        require(IERC20(DOLA).transferFrom(msg.sender, address(this), amount), "DOLA transfer failed");
+        uint senderBalance = IERC20(DOLA).balanceOf(msg.sender);
+        if(senderBalance >= amount){
+            require(IERC20(DOLA).transferFrom(msg.sender, address(this), amount), "DOLA transfer failed");
+        } else {
+            revert InsufficientTreasuryFunds(amount, senderBalance);
+        }
 
         emit Repayment(amount, _epoch);
     }
