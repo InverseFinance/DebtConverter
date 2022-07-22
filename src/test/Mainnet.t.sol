@@ -255,6 +255,7 @@ contract ContractTest is DSTest {
     }
 
     function testRepaymentAndRedeemConversionWithNWeeklyRepayments(uint8 _repayments) public {
+        vm.assume(_repayments < 520);
         vm.assume(_repayments > 1);
         uint256 repayments = uint256(_repayments);
         //Convert anETH to DOLA IOUs
