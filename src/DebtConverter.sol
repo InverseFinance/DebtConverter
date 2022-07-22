@@ -60,11 +60,11 @@ contract DebtConverter is ERC20 {
     //Errors
     error TransferToAddressNotWhitelisted();
     error OnlyOwner();
-    error InsufficientDebtTokens();
+    error InsufficientDebtTokens(uint needed, uint actual);
     error InsufficientTreasuryFunds(uint needed, uint actual);
     error InvalidDebtToken();
-    error DolaAmountLessThanMinOut();
-    error InsufficientDebtToBeRepaid();
+    error DolaAmountLessThanMinOut(uint minOut, uint amount);
+    error InsufficientDebtToBeRepaid(uint repayment, uint debt);
     error ConversionDoesNotExist();
     error ConversionEpochNotEqualToCurrentEpoch();
 
@@ -112,7 +112,7 @@ contract DebtConverter is ERC20 {
         if (anToken != anYfi && anToken != anBtc && anToken != anEth) revert InvalidDebtToken();
         uint anTokenBal = IERC20(anToken).balanceOf(msg.sender);
         if (amount == 0) amount = anTokenBal;
-        if (anTokenBal < amount) revert InsufficientDebtTokens();
+        if (anTokenBal < amount) revert InsufficientDebtTokens(anTokenBal, amount);
 
         //Accrue interest so exchange rates are fresh
         accrueInterest();
@@ -125,7 +125,7 @@ contract DebtConverter is ERC20 {
         uint dolaValueOfDebt = (oracle.getUnderlyingPrice(anToken) * amount) / (10 ** _decimals);
         uint dolaIOUsOwed = convertDolaToDolaIOUs(dolaValueOfDebt);
 
-        if (dolaValueOfDebt < minOut) revert DolaAmountLessThanMinOut();
+        if (dolaValueOfDebt < minOut) revert DolaAmountLessThanMinOut(minOut, dolaValueOfDebt);
 
         outstandingDebt += dolaValueOfDebt;
         cumDebt += dolaValueOfDebt;
@@ -151,7 +151,7 @@ contract DebtConverter is ERC20 {
     function repayment(uint amount) external {
         if(amount == 0) return;
         uint _outstandingDebt = outstandingDebt;
-        if (amount + epochCumRepayments > _outstandingDebt) revert InsufficientDebtToBeRepaid();
+        if (amount + epochCumRepayments > _outstandingDebt) revert InsufficientDebtToBeRepaid(amount + epochCumRepayments, _outstandingDebt);
         uint _epoch = repaymentEpoch;
 
         //Only let privileged address add epochs, otherwise this becomes a DoS vector through filling repayments array
