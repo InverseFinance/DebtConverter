@@ -77,8 +77,8 @@ contract ContractTest is DSTest {
 
         uint ethPrice = ethFeed.latestAnswer();
         (,uint dolaConverted,) = debtConverter.conversions(user, 0);
-        assertGe(ethPrice * 1001/1000, dolaConverted / 1e10);
-        assertLe(ethPrice, dolaConverted * 1001/1000 / 1e10);
+        assertGe(ethPrice * 1001/1000, dolaConverted / 1e10, "Converted ETH worth more than amount of DOLA converted");
+        assertLe(ethPrice, dolaConverted * 1001/1000 / 1e10, "Amount of DOLA converted worth more than converted ETH");
     }
 
     function testZMintUsingBTC() public {
@@ -98,8 +98,8 @@ contract ContractTest is DSTest {
 
         uint btcPrice = btcFeed.latestAnswer();
         (,uint dolaConverted,) = debtConverter.conversions(user, 0);
-        assertGe(btcPrice * 1001/1000, dolaConverted / 1e10);
-        assertLe(btcPrice, dolaConverted * 1001/1000 / 1e10);
+        assertGe(btcPrice * 1001/1000, dolaConverted / 1e10, "Converted BTC worth more than amount of DOLA converted");
+        assertLe(btcPrice, dolaConverted * 1001/1000 / 1e10, "Amount of DOLA converted worth more than converted BTC");
     }
 
     function testZMintUsingYFI() public {
@@ -119,8 +119,8 @@ contract ContractTest is DSTest {
 
         uint yfiPrice = yfiFeed.latestAnswer();
         (,uint dolaConverted,) = debtConverter.conversions(user, 0);
-        assertGe(yfiPrice * 1001/1000, dolaConverted / 1e10);
-        assertLe(yfiPrice, dolaConverted * 1001/1000 / 1e10);
+        assertGe(yfiPrice * 1001/1000, dolaConverted / 1e10, "Converted YFI worth more than amount of DOLA converted");
+        assertLe(yfiPrice, dolaConverted * 1001/1000 / 1e10, "Amount of DOLA converted worth more than converted YFI");
     }
 
     function testConvertBTC() public {
