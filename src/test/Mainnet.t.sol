@@ -18,6 +18,9 @@ contract ContractTest is DSTest {
     address public constant anYfi = 0xde2af899040536884e062D3a334F2dD36F34b4a4;
     address public constant anBtc = 0x17786f3813E6bA35343211bd8Fe18EC4de14F28b;
 
+    address public constant WBTC = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
+    address public constant YFI = 0x0bc529c00C6401aEF6D220BE8C6Ea1667F6Ad93e;
+
     //Chainlink Feeds
     IFeed ethFeed = IFeed(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419);
     IFeed btcFeed = IFeed(0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c);
@@ -34,7 +37,7 @@ contract ContractTest is DSTest {
     address user2 = address(1337);
 
     //Numbas
-    uint anTokenAmount = 50 * 10**18;
+    uint anTokenAmount = 50 * 10**8;
     uint anBtcAmount = 50 * 10**8;
     uint dolaAmount = 2 * 10 ** 7 * 10**18;
 
@@ -46,6 +49,7 @@ contract ContractTest is DSTest {
     error OnlyOwner();
     error InvalidDebtToken();
     error ConversionEpochNotEqualToCurrentEpoch();
+    error ThatEpochIsInTheFuture();
     
     function setUp() public {
         debtConverter = new DebtConverter(gov, treasury, oracle);
@@ -55,6 +59,68 @@ contract ContractTest is DSTest {
         IERC20(DOLA).approve(address(debtConverter), type(uint256).max);
         comptroller._setTransferPaused(false);
         vm.stopPrank();
+    }
+
+    function testZMintUsingEth() public {
+        vm.startPrank(gov);
+        comptroller._setMintPaused(anEth, false);
+
+        vm.stopPrank();
+        vm.startPrank(user);
+        vm.deal(user, 1e18);
+
+        ICToken(anEth).mint{value: 1e18}();
+        ICToken(anEth).balanceOf(user);
+
+        IERC20(anEth).approve(address(debtConverter), type(uint).max);
+        debtConverter.convert(anEth, ICToken(anEth).balanceOf(user), 0);
+
+        uint ethPrice = ethFeed.latestAnswer();
+        (,uint dolaConverted,) = debtConverter.conversions(user, 0);
+        assertGe(ethPrice * 1001/1000, dolaConverted / 1e10);
+        assertLe(ethPrice, dolaConverted * 1001/1000 / 1e10);
+    }
+
+    function testZMintUsingBTC() public {
+        vm.startPrank(gov);
+        comptroller._setMintPaused(anBtc, false);
+
+        vm.stopPrank();
+        vm.startPrank(user);
+
+        gibToken(WBTC, user, 1e8);
+        IERC20(WBTC).approve(anBtc, type(uint).max);
+        ICToken(anBtc).mint(1e8);
+        ICToken(anBtc).balanceOf(user);
+
+        IERC20(anBtc).approve(address(debtConverter), type(uint).max);
+        debtConverter.convert(anBtc, ICToken(anBtc).balanceOf(user), 0);
+
+        uint btcPrice = btcFeed.latestAnswer();
+        (,uint dolaConverted,) = debtConverter.conversions(user, 0);
+        assertGe(btcPrice * 1001/1000, dolaConverted / 1e10);
+        assertLe(btcPrice, dolaConverted * 1001/1000 / 1e10);
+    }
+
+    function testZMintUsingYFI() public {
+        vm.startPrank(gov);
+        comptroller._setMintPaused(anYfi, false);
+
+        vm.stopPrank();
+        vm.startPrank(user);
+
+        gibToken(YFI, user, 1e18);
+        IERC20(YFI).approve(anYfi, type(uint).max);
+        ICToken(anYfi).mint(1e18);
+        ICToken(anYfi).balanceOf(user);
+
+        IERC20(anYfi).approve(address(debtConverter), type(uint).max);
+        debtConverter.convert(anYfi, ICToken(anYfi).balanceOf(user), 0);
+
+        uint yfiPrice = yfiFeed.latestAnswer();
+        (,uint dolaConverted,) = debtConverter.conversions(user, 0);
+        assertGe(yfiPrice * 1001/1000, dolaConverted / 1e10);
+        assertLe(yfiPrice, dolaConverted * 1001/1000 / 1e10);
     }
 
     function testConvertBTC() public {
@@ -80,6 +146,7 @@ contract ContractTest is DSTest {
         vm.startPrank(user);
 
         IERC20(anToken).approve(address(debtConverter), amount);
+        uint underlyingAmount = ICToken(anToken).balanceOfUnderlying(user);
         debtConverter.convert(anToken, amount, 0);
 
         IFeed feed;
@@ -92,7 +159,7 @@ contract ContractTest is DSTest {
         }
 
         uint decimals = 8;
-        uint dolaToBeReceived = amount * feed.latestAnswer();
+        uint dolaToBeReceived = underlyingAmount * feed.latestAnswer();
         if (anToken == anBtc) {
             dolaToBeReceived = dolaToBeReceived * 10**2;
         } else {
@@ -201,8 +268,6 @@ contract ContractTest is DSTest {
 
         (,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
         
-        //I assume 1 wei converted yields less than 0.1 cent
-        assertLt(dolaAmountConverted, 10 ** 15, "Redemption amount higher than 0.1 cent");
         //scaled by 1001/1000 to add a 0.1% cushion & account for rounding
         assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, dolaAmountConverted, "User balance less than 99.9% of dolaAmountConverted");
         assertLe(IERC20(DOLA).balanceOf(user), dolaAmountConverted * 1001/1000, "User balance more than 100.1% of dolaAmountConverted");
@@ -322,7 +387,7 @@ contract ContractTest is DSTest {
         assertLe(IERC20(DOLA).balanceOf(user), dolaAmountConverted * 1001/1000, "User balance more than 100.1% of dolaAmountConverted");
     }
 
-    function testZRedeemConversionWhileSpecifyingEndEpoch() public {
+    function testRedeemConversionWhileSpecifyingEndEpoch() public {
         //Convert anETH to DOLA IOUs
         gibAnTokens(user, anEth, anTokenAmount);
 
@@ -360,6 +425,25 @@ contract ContractTest is DSTest {
         //scaled by 1001/1000 to add a 0.1% cushion & account for rounding
         assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, dolaAmountConverted, "User balance less than 99.9% of dolaAmountConverted");
         assertLe(IERC20(DOLA).balanceOf(user), dolaAmountConverted * 1001/1000, "User balance more than 100.1% of dolaAmountConverted");
+    }
+
+    function testRedeemConversionFailsIfEndEpochIsInTheFuture() public {
+        gibAnTokens(user, anEth, anTokenAmount);
+
+        vm.startPrank(user);
+
+        IERC20(anEth).approve(address(debtConverter), anTokenAmount);
+        debtConverter.convert(anEth, anTokenAmount, 0);
+        
+        vm.stopPrank();
+        vm.startPrank(gov);
+        debtConverter.repayment(debtConverter.outstandingDebt());
+
+        vm.stopPrank();
+        vm.startPrank(user);
+
+        vm.expectRevert(ThatEpochIsInTheFuture.selector);
+        debtConverter.redeemConversion(0, 10);
     }
 
     function testRepaymentAndRedeemConversionWithMultipleAddressRepayments() public {
@@ -699,5 +783,16 @@ contract ContractTest is DSTest {
         }
 
         vm.store(DOLA, slot, bytes32(_amount));
+    }
+
+    function gibToken(address _token, address _user, uint _amount) public {
+        bytes32 slot;
+        assembly {
+            mstore(0, _user)
+            mstore(0x20, 0x0)
+            slot := keccak256(0, 0x40)
+        }
+
+        vm.store(_token, slot, bytes32(uint256(_amount)));
     }
 }

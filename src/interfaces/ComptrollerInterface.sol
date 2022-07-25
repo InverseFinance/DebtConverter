@@ -84,4 +84,6 @@ interface ComptrollerInterface {
         address cTokenBorrowed,
         address cTokenCollateral,
         uint repayAmount) external view returns (uint, uint);
+
+    function _setMintPaused(address cToken, bool state) external returns (bool);
 }

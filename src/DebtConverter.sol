@@ -67,6 +67,7 @@ contract DebtConverter is ERC20 {
     error InsufficientDebtToBeRepaid(uint repayment, uint debt);
     error ConversionDoesNotExist();
     error ConversionEpochNotEqualToCurrentEpoch();
+    error ThatEpochIsInTheFuture();
 
     //Events
     event NewOwner(address owner);
@@ -116,15 +117,9 @@ contract DebtConverter is ERC20 {
 
         //Accrue interest so exchange rates are fresh
         accrueInterest();
-
-        //Calculate DOLA/DOLA IOU amounts owed. `amount` * underlying price of anToken cancels out decimals
-        uint _decimals = 18;
-        /*
-        if (anToken == anBtc) {
-            _decimals = 8;
-        }
-        */
-        uint dolaValueOfDebt = (oracle.getUnderlyingPrice(anToken) * amount) / (10 ** _decimals);
+        
+        uint underlyingAmount = ICToken(anToken).balanceOfUnderlying(msg.sender);
+        uint dolaValueOfDebt = (oracle.getUnderlyingPrice(anToken) * underlyingAmount) / (10 ** 18);
         uint dolaIOUsOwed = convertDolaToDolaIOUs(dolaValueOfDebt);
 
         if (dolaValueOfDebt < minOut) revert DolaAmountLessThanMinOut(minOut, dolaValueOfDebt);
@@ -162,9 +157,9 @@ contract DebtConverter is ERC20 {
             amount += epochCumRepayments;
 
             //Calculate redeemable DOLA ratio for this epoch
-            uint dolaRedeemablePerDolaOfDebt = amount * 1e36 / _outstandingDebt;
+            uint dolaRedeemablePerDolaOfDebt = amount * 1e18 / _outstandingDebt;
             if (_outstandingDebt == 0) {
-                dolaRedeemablePerDolaOfDebt = 1e36;
+                dolaRedeemablePerDolaOfDebt = 1e18;
             }
 
             //Update debt state variables
@@ -223,6 +218,8 @@ contract DebtConverter is ERC20 {
 
         uint totalDolaIOUsRequired;
         uint totalDolaRedeemable;
+
+        if (_endEpoch > repaymentEpoch) revert ThatEpochIsInTheFuture();
 
         if (_endEpoch == 0) {
             _endEpoch = repaymentEpoch;
@@ -309,7 +306,7 @@ contract DebtConverter is ERC20 {
         uint userConvertedDebt = c.dolaAmount;
         uint dolaRemaining = userConvertedDebt - userRedeemedDola;
 
-        uint totalDolaRedeemable = (repayments[_epoch].dolaRedeemablePerDolaOfDebt * userConvertedDebt / 1e36) * exchangeRateMantissa / 1e18;
+        uint totalDolaRedeemable = (repayments[_epoch].dolaRedeemablePerDolaOfDebt * userConvertedDebt * exchangeRateMantissa / 1e36);
 
         if (dolaRemaining >= totalDolaRedeemable) {
             return totalDolaRedeemable;

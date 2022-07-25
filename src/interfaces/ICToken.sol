@@ -35,4 +35,7 @@ interface ICToken {
 
     function redeem(uint redeemTokens) external returns (uint);
     function redeemUnderlying(uint redeemAmount) external returns (uint);
+
+    function mint() external payable;
+    function mint(uint amount) external payable;
 }
