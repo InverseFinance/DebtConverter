@@ -290,7 +290,7 @@ contract ContractTest is DSTest {
         vm.stopPrank();
         vm.startPrank(user);
 
-        vm.expectRevert(ConversionEpochNotEqualToCurrentEpoch.selector);
+        vm.expectRevert(ConversionEpochNotEqualToCurrentEpoch.selector, 0, 1);
         debtConverter.redeemConversionDust(0);
     }
 
