@@ -66,7 +66,7 @@ contract DebtConverter is ERC20 {
     error DolaAmountLessThanMinOut(uint minOut, uint amount);
     error InsufficientDebtToBeRepaid(uint repayment, uint debt);
     error ConversionDoesNotExist();
-    error ConversionEpochNotEqualToCurrentEpoch();
+    error ConversionEpochNotEqualToCurrentEpoch(uint conversionEpoch, uint currentEpoch);
     error ThatEpochIsInTheFuture();
 
     //Events
@@ -266,7 +266,7 @@ contract DebtConverter is ERC20 {
      */
     function redeemConversionDust(uint _conversion) external {
         ConversionData memory c = conversions[msg.sender][_conversion];
-        if (c.lastEpochRedeemed != repaymentEpoch) revert ConversionEpochNotEqualToCurrentEpoch();
+        if (c.lastEpochRedeemed != repaymentEpoch) revert ConversionEpochNotEqualToCurrentEpoch(c.lastEpochRedeemed, repaymentEpoch);
         uint dolaLeftToRedeem = c.dolaAmount - c.dolaRedeemed;
         uint redeemablePct = dolaLeftToRedeem * 1e18 / c.dolaRedeemed;
 
