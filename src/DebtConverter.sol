@@ -42,11 +42,14 @@ contract DebtConverter is ERC20 {
     //user address => bool. True if DOLA IOU transfers to this address are allowed, false by default.
     mapping(address => bool) public transferWhitelist;
 
-    //Can call privileged functions.
+    //Can perform repayments and set interest rates.
     address public owner;
 
     //Treasury address buying the debt.
     address public treasury;
+
+    //Can set privileged roles and sweep tokens.
+    address public governance;
 
     //Frontier master oracle.
     IOracle public immutable oracle;
@@ -60,6 +63,7 @@ contract DebtConverter is ERC20 {
     //Errors
     error TransferToAddressNotWhitelisted();
     error OnlyOwner();
+    error OnlyGovernance();
     error InsufficientDebtTokens(uint needed, uint actual);
     error InsufficientTreasuryFunds(uint needed, uint actual);
     error InvalidDebtToken();
@@ -72,6 +76,7 @@ contract DebtConverter is ERC20 {
     //Events
     event NewOwner(address owner);
     event NewTreasury(address treasury);
+    event NewGovernance(address governance);
     event NewTransferWhitelistAddress(address whitelistedAddr);
     event NewAnnualExchangeRateIncrease(uint increase);
     event Repayment(uint dolaAmount, uint epoch);
@@ -90,9 +95,10 @@ contract DebtConverter is ERC20 {
         uint dolaRedeemed;
     }
 
-    constructor(address _owner, address _treasury, address _oracle) ERC20("DOLA IOU", "DOLAIOU") {
+    constructor(address _owner, address _treasury, address _governance, address _oracle) ERC20("DOLA IOU", "DOLAIOU") {
         owner = _owner;
         treasury = _treasury;
+        governance = _governance;
         oracle = IOracle(_oracle);
         exchangeRateMantissa = 1e18;
         lastAccrueInterestTimestamp = block.timestamp;
@@ -100,6 +106,11 @@ contract DebtConverter is ERC20 {
 
     modifier onlyOwner() {
         if ( msg.sender != owner ) revert OnlyOwner();
+        _;
+    }
+
+    modifier onlyGovernance() {
+        if ( msg.sender != governance ) revert OnlyGovernance();
         _;
     }
 
@@ -358,7 +369,7 @@ contract DebtConverter is ERC20 {
      * @param token Address of the token to be transferred out of this contract
      * @param amount Amount of `token` to be transferred out of this contract, 0 = max
      */
-    function sweepTokens(address token, uint amount) external onlyOwner {
+    function sweepTokens(address token, uint amount) external onlyGovernance {
         if (amount == 0) { 
             require(IERC20(token).transfer(treasury, IERC20(token).balanceOf(address(this))), "Token transfer failed");
         } else {
@@ -380,7 +391,7 @@ contract DebtConverter is ERC20 {
      * @notice function for setting owner address.
      * @param newOwner Address that will become the new owner of the contract.
      */
-    function setOwner(address newOwner) external onlyOwner {
+    function setOwner(address newOwner) external onlyGovernance {
         owner = newOwner;
 
         emit NewOwner(newOwner);
@@ -390,10 +401,20 @@ contract DebtConverter is ERC20 {
      * @notice function for setting treasury address.
      * @param newTreasury Address that will be set as the new treasury of the contract.
      */
-    function setTreasury(address newTreasury) external onlyOwner {
+    function setTreasury(address newTreasury) external onlyGovernance {
         treasury = newTreasury;
 
         emit NewTreasury(newTreasury);
+    }
+
+    /*
+     * @notice function for setting governance address.
+     * @param newGovernance Address that will be set as the new treasury of the contract.
+     */
+    function setGovernance(address newGovernance) external onlyGovernance {
+        governance = newGovernance;
+
+        emit NewGovernance(newGovernance);
     }
 
     /*

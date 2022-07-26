@@ -47,12 +47,13 @@ contract ContractTest is DSTest {
     error ConversionOccurredAfterGivenEpoch();
     error AlreadyRedeemedThisEpoch();
     error OnlyOwner();
+    error OnlyGovernance();
     error InvalidDebtToken();
     error ConversionEpochNotEqualToCurrentEpoch(uint currentEpoch, uint repaymentEpoch);
     error ThatEpochIsInTheFuture();
     
     function setUp() public {
-        debtConverter = new DebtConverter(gov, treasury, oracle);
+        debtConverter = new DebtConverter(gov, treasury, gov, oracle);
 
         vm.startPrank(gov);
         gibDOLA(gov, dolaAmount);
@@ -712,7 +713,7 @@ contract ContractTest is DSTest {
 
         vm.startPrank(user);
 
-        vm.expectRevert(OnlyOwner.selector);
+        vm.expectRevert(OnlyGovernance.selector);
         debtConverter.sweepTokens(DOLA, 1);
     }
 
@@ -740,18 +741,25 @@ contract ContractTest is DSTest {
         debtConverter.setExchangeRateIncrease(1e18);
     }
 
-    function testSetOwnerNotCallableByNonOwner() public {
+    function testSetOwnerNotCallableByNonGovernance() public {
         vm.startPrank(user);
 
-        vm.expectRevert(OnlyOwner.selector);
+        vm.expectRevert(OnlyGovernance.selector);
         debtConverter.setOwner(user);
     }
 
-    function testSetTreasuryNotCallableByNonOwner() public {
+    function testSetTreasuryNotCallableByNonGovernance() public {
         vm.startPrank(user);
 
-        vm.expectRevert(OnlyOwner.selector);
+        vm.expectRevert(OnlyGovernance.selector);
         debtConverter.setTreasury(user);
+    }
+
+    function testSetGovernanceNotCallableByNonGovernance() public {
+        vm.startPrank(user);
+
+        vm.expectRevert(OnlyGovernance.selector);
+        debtConverter.setGovernance(user);
     }
 
     function testWhitelistTransferForNotCallableByNonOwner() public {
