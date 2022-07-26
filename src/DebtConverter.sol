@@ -19,7 +19,7 @@ contract DebtConverter is ERC20 {
     //Exchange rate of DOLA IOUs to DOLA scaled by 1e18. Default is 1e18.
     //DOLA IOU amount * exchangeRateMantissa / 1e18 = DOLA amount received on redemption
     //Bad Debt $ amount * 1e18 / exchangeRateMantissa = DOLA IOUs received on conversion
-    uint public exchangeRateMantissa;
+    uint public exchangeRateMantissa = 1e18;
 
     //The amount that exchangeRateMantissa will increase every second. This is how “interest” is accrued.
     uint public exchangeRateIncreasePerSecond;
@@ -100,7 +100,6 @@ contract DebtConverter is ERC20 {
         treasury = _treasury;
         governance = _governance;
         oracle = IOracle(_oracle);
-        exchangeRateMantissa = 1e18;
         lastAccrueInterestTimestamp = block.timestamp;
     }
 
