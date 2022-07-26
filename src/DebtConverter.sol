@@ -49,7 +49,7 @@ contract DebtConverter is ERC20 {
     address public treasury;
 
     //Frontier master oracle.
-    IOracle public oracle;
+    IOracle public immutable oracle;
 
     //DOLA contract
     address public constant DOLA = 0x865377367054516e17014CcdED1e7d814EDC9ce4;
