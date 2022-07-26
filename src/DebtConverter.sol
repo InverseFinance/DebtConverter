@@ -299,7 +299,9 @@ contract DebtConverter is ERC20 {
         if(block.timestamp != lastAccrueInterestTimestamp && exchangeRateIncreasePerSecond > 0) {
             uint rateIncrease = (block.timestamp - lastAccrueInterestTimestamp) * exchangeRateIncreasePerSecond;
             exchangeRateMantissa += rateIncrease;
-            cumDebt += rateIncrease * totalSupply() / 1e18;
+            uint newDebt = rateIncrease * totalSupply() / 1e18;
+            cumDebt += newDebt;
+            outstandingDebt  += newDebt;
             lastAccrueInterestTimestamp = block.timestamp;
         }
     }
