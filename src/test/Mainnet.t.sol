@@ -48,7 +48,7 @@ contract ContractTest is DSTest {
     error AlreadyRedeemedThisEpoch();
     error OnlyOwner();
     error InvalidDebtToken();
-    error ConversionEpochNotEqualToCurrentEpoch();
+    error ConversionEpochNotEqualToCurrentEpoch(uint currentEpoch, uint repaymentEpoch);
     error ThatEpochIsInTheFuture();
     
     function setUp() public {
@@ -290,7 +290,7 @@ contract ContractTest is DSTest {
         vm.stopPrank();
         vm.startPrank(user);
 
-        vm.expectRevert(ConversionEpochNotEqualToCurrentEpoch.selector, 0, 1);
+        vm.expectRevert(abi.encodeWithSelector(ConversionEpochNotEqualToCurrentEpoch.selector, 0, 1));
         debtConverter.redeemConversionDust(0);
     }
 
