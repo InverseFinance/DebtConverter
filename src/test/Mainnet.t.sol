@@ -355,6 +355,39 @@ contract ContractTest is DSTest {
         assertLe(IERC20(DOLA).balanceOf(user), dolaAmountConverted * 1001/1000, "User balance more than 100.1% of dolaAmountConverted");
     }
 
+    function testRepaymentAndRedeemConversionWithInterest() public {
+        //Convert anETH to DOLA IOUs
+        gibAnTokens(user, anEth, anTokenAmount);
+
+        vm.startPrank(user);
+
+        IERC20(anEth).approve(address(debtConverter), anTokenAmount);
+        debtConverter.convert(anEth, anTokenAmount, 0);
+
+        vm.stopPrank();
+        vm.startPrank(gov);
+        debtConverter.setExchangeRateIncrease(1e18);
+        vm.warp(block.timestamp + (86400 * 365));
+        debtConverter.accrueInterest();
+        debtConverter.repayment(debtConverter.outstandingDebt());
+
+        vm.stopPrank();
+        vm.startPrank(user);
+        debtConverter.redeemConversion(0, 0);
+        uint dolaBalance = IERC20(DOLA).balanceOf(user);
+        uint dolaIOUBalance = IERC20(address(debtConverter)).balanceOf(user); 
+        debtConverter.redeemConversion(0, 0);
+
+        (,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
+        uint exchangeRate = debtConverter.exchangeRateMantissa();
+
+        assertEq(IERC20(DOLA).balanceOf(user), dolaBalance, "Dola balance changed after second redemption");
+        assertEq(IERC20(address(debtConverter)).balanceOf(user), dolaIOUBalance, "Dola IOU balance changed after second redemption");
+        //scaled by 1001/1000 to add a 0.1% cushion & account for rounding
+        assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, dolaAmountConverted * exchangeRate / 1e18, "User balance less than 99.9% of dolaAmountConverted");
+        assertLe(IERC20(DOLA).balanceOf(user), dolaAmountConverted * exchangeRate / 1e18 * 1001/1000, "User balance more than 100.1% of dolaAmountConverted");
+    }
+
     function testRepaymentAndRedeemConversionWithNWeeklyRepayments(uint8 _repayments) public {
         vm.assume(_repayments < 520);
         vm.assume(_repayments > 1);

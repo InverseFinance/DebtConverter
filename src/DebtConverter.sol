@@ -157,6 +157,7 @@ contract DebtConverter is ERC20 {
      */
     function repayment(uint amount) external {
         if(amount == 0) return;
+        accrueInterest();
         uint _outstandingDebt = outstandingDebt;
         if (amount + epochCumRepayments > _outstandingDebt) revert InsufficientDebtToBeRepaid(amount + epochCumRepayments, _outstandingDebt);
         uint _epoch = repaymentEpoch;
@@ -184,7 +185,6 @@ contract DebtConverter is ERC20 {
             epochCumRepayments += amount;
         }
         
-        accrueInterest();
         uint senderBalance = IERC20(DOLA).balanceOf(msg.sender);
         if(senderBalance >= amount){
             require(IERC20(DOLA).transferFrom(msg.sender, address(this), amount), "DOLA transfer failed");
@@ -223,6 +223,7 @@ contract DebtConverter is ERC20 {
      */
     function redeemConversion(uint _conversion, uint _endEpoch) external {
         if (_conversion > conversions[msg.sender].length) revert ConversionDoesNotExist();
+        accrueInterest();
         ConversionData storage c = conversions[msg.sender][_conversion];
         uint lastEpochRedeemed = c.lastEpochRedeemed;
 
@@ -316,7 +317,7 @@ contract DebtConverter is ERC20 {
         ConversionData memory c = conversions[_addr][_conversion];
         uint userRedeemedDola =c.dolaRedeemed;
         uint userConvertedDebt = c.dolaAmount;
-        uint dolaRemaining = userConvertedDebt - userRedeemedDola;
+        uint dolaRemaining = userConvertedDebt * exchangeRateMantissa / 1e18 - userRedeemedDola;
 
         uint totalDolaRedeemable = (repayments[_epoch].dolaRedeemablePerDolaOfDebt * userConvertedDebt * exchangeRateMantissa / 1e36);
 
