@@ -128,7 +128,7 @@ contract DebtConverter is ERC20 {
         //Accrue interest so exchange rates are fresh
         accrueInterest();
         
-        uint underlyingAmount = ICToken(anToken).balanceOfUnderlying(msg.sender);
+        uint underlyingAmount = ICToken(anToken).balanceOfUnderlying(msg.sender)*amount/ICToken(anToken).balanceOf(msg.sender);
         uint dolaValueOfDebt = (oracle.getUnderlyingPrice(anToken) * underlyingAmount) / (10 ** 18);
         uint dolaIOUsOwed = convertDolaToDolaIOUs(dolaValueOfDebt);
 
