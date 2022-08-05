@@ -263,6 +263,7 @@ contract DebtConverter is ERC20 {
     function redeemConversionDust(uint _conversion) public {
         ConversionData memory c = conversions[msg.sender][_conversion];
         if (c.lastEpochRedeemed != repaymentEpoch) revert ConversionEpochNotEqualToCurrentEpoch(c.lastEpochRedeemed, repaymentEpoch);
+        accrueInterest();
         uint dolaIOUsLeftToRedeem = c.dolaIOUAmount - c.dolaIOUsRedeemed;
         uint dolaLeftToRedeem = convertDolaIOUsToDola(dolaIOUsLeftToRedeem);
         uint redeemableIOUsPct = dolaIOUsLeftToRedeem * 1e18 / c.dolaIOUsRedeemed;
