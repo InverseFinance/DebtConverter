@@ -189,15 +189,7 @@ contract DebtConverter is ERC20 {
      */
     function redeem(uint _conversion, uint _epoch) internal returns (uint) {
         uint redeemableDolaIOUs = getRedeemableDolaIOUsFor(msg.sender, _conversion, _epoch);
-
-        //If msg.sender does not have enough DOLA IOUs, redeem remainder of their DOLA IOUs
-        if (redeemableDolaIOUs > balanceOf(msg.sender)) {
-            redeemableDolaIOUs = balanceOf(msg.sender);
-        }
-
-        ConversionData storage c = conversions[msg.sender][_conversion];
-        c.dolaIOUsRedeemed += redeemableDolaIOUs;
-
+        conversions[msg.sender][_conversion].dolaIOUsRedeemed += redeemableDolaIOUs;
         return redeemableDolaIOUs;
     }
 
@@ -245,6 +237,14 @@ contract DebtConverter is ERC20 {
                 c.dolaIOUsRedeemed -= convertDolaToDolaIOUs(totalDolaRedeemable - dolaBal);
                 totalDolaRedeemable = dolaBal;
                 totalDolaIOUsRedeemable = convertDolaToDolaIOUs(totalDolaRedeemable);
+            }
+
+            //If user does not have enough DOLA IOUs to fully redeem, will redeem remainder of IOUs
+            if (totalDolaIOUsRedeemable > balanceOf(msg.sender)) {
+                uint diff = totalDolaIOUsRedeemable - balanceOf(msg.sender);
+                c.dolaIOUsRedeemed -= diff;
+                totalDolaIOUsRedeemable = balanceOf(msg.sender);
+                totalDolaRedeemable = convertDolaIOUsToDola(totalDolaIOUsRedeemable);
             }
 
             _burn(msg.sender, totalDolaIOUsRedeemable);
@@ -307,7 +307,7 @@ contract DebtConverter is ERC20 {
      */
     function getRedeemableDolaIOUsFor(address _addr, uint _conversion, uint _epoch) public view returns (uint) {
         ConversionData memory c = conversions[_addr][_conversion];
-        uint userRedeemedIOUs =c.dolaIOUsRedeemed;
+        uint userRedeemedIOUs = c.dolaIOUsRedeemed;
         uint userConvertedIOUs = c.dolaIOUAmount;
         uint dolaIOUsRemaining = userConvertedIOUs - userRedeemedIOUs;
 
