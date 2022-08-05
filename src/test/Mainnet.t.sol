@@ -62,66 +62,69 @@ contract ContractTest is DSTest {
         vm.stopPrank();
     }
 
-    function testZMintUsingEth() public {
+    function testMintUsingEth() public {
         vm.startPrank(gov);
         comptroller._setMintPaused(anEth, false);
 
         vm.stopPrank();
         vm.startPrank(user);
-        vm.deal(user, 1e18);
+        vm.deal(user, 6e18);
 
         ICToken(anEth).mint{value: 1e18}();
-        ICToken(anEth).balanceOf(user);
+        uint cTokenBal = ICToken(anEth).balanceOf(user);
+        ICToken(anEth).mint{value: 5e18}();
 
         IERC20(anEth).approve(address(debtConverter), type(uint).max);
-        debtConverter.convert(anEth, ICToken(anEth).balanceOf(user), 0);
+        debtConverter.convert(anEth, cTokenBal, 0);
 
         uint ethPrice = ethFeed.latestAnswer();
         (,uint dolaConverted,) = debtConverter.conversions(user, 0);
-        assertGe(ethPrice * 1001/1000, dolaConverted / 1e10, "Converted ETH worth more than amount of DOLA converted");
-        assertLe(ethPrice, dolaConverted * 1001/1000 / 1e10, "Amount of DOLA converted worth more than converted ETH");
+        assertGe(ethPrice * 1001/1000, convertDolaIOUsToDola(dolaConverted) / 1e10, "Converted ETH worth more than amount of DOLA converted");
+        assertLe(ethPrice, convertDolaIOUsToDola(dolaConverted) * 1001/1000 / 1e10, "Amount of DOLA converted worth more than converted ETH");
     }
 
-    function testZMintUsingBTC() public {
+    function testMintUsingBTC() public {
         vm.startPrank(gov);
         comptroller._setMintPaused(anBtc, false);
 
         vm.stopPrank();
         vm.startPrank(user);
 
-        gibToken(WBTC, user, 1e8);
+        gibToken(WBTC, user, 6e8);
         IERC20(WBTC).approve(anBtc, type(uint).max);
         ICToken(anBtc).mint(1e8);
-        ICToken(anBtc).balanceOf(user);
+        uint cTokenBal = ICToken(anBtc).balanceOf(user);
+        ICToken(anBtc).mint(5e8);
 
         IERC20(anBtc).approve(address(debtConverter), type(uint).max);
-        debtConverter.convert(anBtc, ICToken(anBtc).balanceOf(user), 0);
+        debtConverter.convert(anBtc, cTokenBal, 0);
 
         uint btcPrice = btcFeed.latestAnswer();
         (,uint dolaConverted,) = debtConverter.conversions(user, 0);
-        assertGe(btcPrice * 1001/1000, dolaConverted / 1e10, "Converted BTC worth more than amount of DOLA converted");
-        assertLe(btcPrice, dolaConverted * 1001/1000 / 1e10, "Amount of DOLA converted worth more than converted BTC");
+        assertGe(btcPrice * 1001/1000, convertDolaIOUsToDola(dolaConverted) / 1e10, "Converted BTC worth more than amount of DOLA converted");
+        assertLe(btcPrice, convertDolaIOUsToDola(dolaConverted) * 1001/1000 / 1e10, "Amount of DOLA converted worth more than converted BTC");
     }
 
-    function testZMintUsingYFI() public {
+    function testMintUsingYFI() public {
         vm.startPrank(gov);
         comptroller._setMintPaused(anYfi, false);
 
         vm.stopPrank();
         vm.startPrank(user);
 
-        gibToken(YFI, user, 1e18);
+        gibToken(YFI, user, 6e18);
         IERC20(YFI).approve(anYfi, type(uint).max);
         ICToken(anYfi).mint(1e18);
-        ICToken(anYfi).balanceOf(user);
+        uint cTokenBal = ICToken(anYfi).balanceOf(user);
+        ICToken(anYfi).mint(5e18);
 
         IERC20(anYfi).approve(address(debtConverter), type(uint).max);
-        debtConverter.convert(anYfi, ICToken(anYfi).balanceOf(user), 0);
+        debtConverter.convert(anYfi, cTokenBal, 0);
 
         uint yfiPrice = yfiFeed.latestAnswer();
         (,uint dolaConverted,) = debtConverter.conversions(user, 0);
-        assertGe(yfiPrice * 1001/1000, dolaConverted / 1e10, "Converted YFI worth more than amount of DOLA converted");
-        assertLe(yfiPrice, dolaConverted * 1001/1000 / 1e10, "Amount of DOLA converted worth more than converted YFI");
+        assertGe(yfiPrice * 1001/1000, convertDolaIOUsToDola(dolaConverted) / 1e10, "Converted YFI worth more than amount of DOLA converted");
+        assertLe(yfiPrice, convertDolaIOUsToDola(dolaConverted) * 1001/1000 / 1e10, "Amount of DOLA converted worth more than converted YFI");
     }
 
     function testConvertBTC() public {
@@ -233,8 +236,8 @@ contract ContractTest is DSTest {
         (,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
 
         //scaled by 1001/1000 to add a 0.1% cushion & account for rounding
-        assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, dolaAmountConverted, "User balance less than 99.9% of dolaAmountConverted");
-        assertLe(IERC20(DOLA).balanceOf(user), dolaAmountConverted * 1001/1000, "User balance more than 100.1% of dolaAmountConverted");
+        assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, convertDolaIOUsToDola(dolaAmountConverted), "User balance less than 99.9% of dolaAmountConverted");
+        assertLe(IERC20(DOLA).balanceOf(user), convertDolaIOUsToDola(dolaAmountConverted) * 1001/1000, "User balance more than 100.1% of dolaAmountConverted");
     }
 
     function testLargeRepaymentAndRedeemAll() public {
@@ -269,8 +272,8 @@ contract ContractTest is DSTest {
         (,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
 
         //scaled by 1001/1000 to add a 0.1% cushion & account for rounding
-        assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, dolaAmountConverted, "User balance less than 99.9% of dolaAmountConverted");
-        assertLe(IERC20(DOLA).balanceOf(user), dolaAmountConverted * 1001/1000, "User balance more than 100.1% of dolaAmountConverted");
+        assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, convertDolaIOUsToDola(dolaAmountConverted), "User balance less than 99.9% of dolaAmountConverted");
+        assertLe(IERC20(DOLA).balanceOf(user), convertDolaIOUsToDola(dolaAmountConverted) * 1001/1000, "User balance more than 100.1% of dolaAmountConverted");
     }
 
     function testSmallRepaymentAndRedeemConversion() public {
@@ -306,8 +309,8 @@ contract ContractTest is DSTest {
         (,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
         
         //scaled by 1001/1000 to add a 0.1% cushion & account for rounding
-        assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, dolaAmountConverted, "User balance less than 99.9% of dolaAmountConverted");
-        assertLe(IERC20(DOLA).balanceOf(user), dolaAmountConverted * 1001/1000, "User balance more than 100.1% of dolaAmountConverted");
+        assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, convertDolaIOUsToDola(dolaAmountConverted), "User balance less than 99.9% of dolaAmountConverted");
+        assertLe(IERC20(DOLA).balanceOf(user), convertDolaIOUsToDola(dolaAmountConverted) * 1001/1000, "User balance more than 100.1% of dolaAmountConverted");
     }
 
 
@@ -348,12 +351,12 @@ contract ContractTest is DSTest {
         vm.startPrank(user);
         debtConverter.redeemConversion(0, 0);
 
-        (,uint dolaConverted, uint dolaRedeemed) = debtConverter.conversions(user, 0);
-        uint dolaLeftToRedeem = dolaConverted - dolaRedeemed;
-        uint redeemablePct = dolaLeftToRedeem * 1e18 / dolaRedeemed;
+        (,uint dolaIOUsConverted, uint dolaIOUsRedeemed) = debtConverter.conversions(user, 0);
+        uint dolaIOUsLeftToRedeem = dolaIOUsConverted - dolaIOUsRedeemed;
+        uint redeemablePct = dolaIOUsLeftToRedeem * 1e18 / dolaIOUsRedeemed;
 
         //Ensure that more than 1.2% of the conversion is left to redeem
-        //This means that the call to `redeemConversionDust()` should transfer 0 DOLA 
+        //This means that the call to `redeemConversionDust()` should transfer 0 DOLA
         assertGt(redeemablePct, .012e18, "More than 1.2% of conversion is left to redeem");
 
         uint userBalPrev = IERC20(DOLA).balanceOf(user);
@@ -387,8 +390,8 @@ contract ContractTest is DSTest {
         assertEq(IERC20(DOLA).balanceOf(user), dolaBalance, "Dola balance changed after second redemption");
         assertEq(IERC20(address(debtConverter)).balanceOf(user), dolaIOUBalance, "Dola IOU balance changed after second redemption");
         //scaled by 1001/1000 to add a 0.1% cushion & account for rounding
-        assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, dolaAmountConverted, "User balance less than 99.9% of dolaAmountConverted");
-        assertLe(IERC20(DOLA).balanceOf(user), dolaAmountConverted * 1001/1000, "User balance more than 100.1% of dolaAmountConverted");
+        assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, convertDolaIOUsToDola(dolaAmountConverted), "User balance less than 99.9% of dolaAmountConverted");
+        assertLe(IERC20(DOLA).balanceOf(user), convertDolaIOUsToDola(dolaAmountConverted) * 1001/1000, "User balance more than 100.1% of dolaAmountConverted");
     }
 
     function testRepaymentAndRedeemConversionWithInterest() public {
@@ -414,14 +417,14 @@ contract ContractTest is DSTest {
         uint dolaIOUBalance = IERC20(address(debtConverter)).balanceOf(user); 
         debtConverter.redeemConversion(0, 0);
 
-        (,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
+        (,uint dolaIOUAmountConverted,) = debtConverter.conversions(user, 0);
         uint exchangeRate = debtConverter.exchangeRateMantissa();
 
         assertEq(IERC20(DOLA).balanceOf(user), dolaBalance, "Dola balance changed after second redemption");
         assertEq(IERC20(address(debtConverter)).balanceOf(user), dolaIOUBalance, "Dola IOU balance changed after second redemption");
         //scaled by 1001/1000 to add a 0.1% cushion & account for rounding
-        assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, dolaAmountConverted * exchangeRate / 1e18, "User balance less than 99.9% of dolaAmountConverted");
-        assertLe(IERC20(DOLA).balanceOf(user), dolaAmountConverted * exchangeRate / 1e18 * 1001/1000, "User balance more than 100.1% of dolaAmountConverted");
+        assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, convertDolaIOUsToDola(dolaIOUAmountConverted), "User balance less than 99.9% of dolaAmountConverted");
+        assertLe(IERC20(DOLA).balanceOf(user), convertDolaIOUsToDola(dolaIOUAmountConverted) * 1001/1000, "User balance more than 100.1% of dolaAmountConverted");
     }
 
     function testRepaymentAndRedeemConversionWithNWeeklyRepayments(uint8 _repayments) public {
@@ -453,8 +456,8 @@ contract ContractTest is DSTest {
         (,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
 
         //scaled by 1001/1000 to add a 0.1% cushion & account for rounding
-        assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, dolaAmountConverted, "User balance less than 99.9% of dolaAmountConverted");
-        assertLe(IERC20(DOLA).balanceOf(user), dolaAmountConverted * 1001/1000, "User balance more than 100.1% of dolaAmountConverted");
+        assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, convertDolaIOUsToDola(dolaAmountConverted), "User balance less than 99.9% of dolaAmountConverted");
+        assertLe(IERC20(DOLA).balanceOf(user), convertDolaIOUsToDola(dolaAmountConverted) * 1001/1000, "User balance more than 100.1% of dolaAmountConverted");
     }
 
     function testRedeemConversionWhileSpecifyingEndEpoch() public {
@@ -493,8 +496,8 @@ contract ContractTest is DSTest {
         (,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
 
         //scaled by 1001/1000 to add a 0.1% cushion & account for rounding
-        assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, dolaAmountConverted, "User balance less than 99.9% of dolaAmountConverted");
-        assertLe(IERC20(DOLA).balanceOf(user), dolaAmountConverted * 1001/1000, "User balance more than 100.1% of dolaAmountConverted");
+        assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, convertDolaIOUsToDola(dolaAmountConverted), "User balance less than 99.9% of dolaAmountConverted");
+        assertLe(IERC20(DOLA).balanceOf(user), convertDolaIOUsToDola(dolaAmountConverted) * 1001/1000, "User balance more than 100.1% of dolaAmountConverted");
     }
 
     function testRedeemConversionFailsIfEndEpochIsInTheFuture() public {
@@ -584,10 +587,10 @@ contract ContractTest is DSTest {
         dolaRedeemablePerDolaOfDebt += dolaRedeemableOne;
 
         //scaled by 1001/1000 to add a 0.1% cushion & account for rounding
-        assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, dolaAmountConvertedUser, "user1 balance less than 99.9% of amount converted");
-        assertLe(IERC20(DOLA).balanceOf(user), dolaAmountConvertedUser * 1001/1000, "user1 balance more than 100.1% of amount converted");
-        assertGe(IERC20(DOLA).balanceOf(user2) * 1001/1000, dolaAmountConvertedUser2, "user2 balance less than 99.9% of amount converted");
-        assertLe(IERC20(DOLA).balanceOf(user2), dolaAmountConvertedUser2 * 1001/1000, "user2 balance more than 100.1% of amount converted");
+        assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, convertDolaIOUsToDola(dolaAmountConvertedUser), "user1 balance less than 99.9% of amount converted");
+        assertLe(IERC20(DOLA).balanceOf(user), convertDolaIOUsToDola(dolaAmountConvertedUser) * 1001/1000, "user1 balance more than 100.1% of amount converted");
+        assertGe(IERC20(DOLA).balanceOf(user2) * 1001/1000, convertDolaIOUsToDola(dolaAmountConvertedUser2), "user2 balance less than 99.9% of amount converted");
+        assertLe(IERC20(DOLA).balanceOf(user2), convertDolaIOUsToDola(dolaAmountConvertedUser2) * 1001/1000, "user2 balance more than 100.1% of amount converted");
     }
 
     function testRepaymentAndRedeemConversionMultipleAddressesStaggered() public {
@@ -653,10 +656,10 @@ contract ContractTest is DSTest {
         debtConverter.outstandingDebt();
         IERC20(DOLA).balanceOf(address(debtConverter));
         IERC20(DOLA).balanceOf(user2);
-        assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, dolaAmountConvertedUser, "user1 balance less than 99.9% of amount converted");
-        assertLe(IERC20(DOLA).balanceOf(user), dolaAmountConvertedUser * 1001/1000, "user1 balance more than 100.1% of amount converted");
-        assertGe(IERC20(DOLA).balanceOf(user2) * 1001/1000, dolaAmountConvertedUser2, "user2 balance less than 99.9% of amount converted");
-        assertLe(IERC20(DOLA).balanceOf(user2), dolaAmountConvertedUser2 * 1001/1000, "user2 balance more than 100.1% of amount converted");
+        assertGe(IERC20(DOLA).balanceOf(user) * 1001/1000, convertDolaIOUsToDola(dolaAmountConvertedUser), "user1 balance less than 99.9% of amount converted");
+        assertLe(IERC20(DOLA).balanceOf(user), convertDolaIOUsToDola(dolaAmountConvertedUser) * 1001/1000, "user1 balance more than 100.1% of amount converted");
+        assertGe(IERC20(DOLA).balanceOf(user2) * 1001/1000, convertDolaIOUsToDola(dolaAmountConvertedUser2), "user2 balance less than 99.9% of amount converted");
+        assertLe(IERC20(DOLA).balanceOf(user2), convertDolaIOUsToDola(dolaAmountConvertedUser2) * 1001/1000, "user2 balance more than 100.1% of amount converted");
     }
 
     function testRedeemMultipleConversions() public {
@@ -705,8 +708,8 @@ contract ContractTest is DSTest {
 
         //User should have all of their converted DOLA redeemed at this point.
         //  scaled by 1001/1000 to add a 0.1% cushion & account for rounding
-        assertGe(IERC20(DOLA).balanceOf(user) * 1001 / 1000, dolaAmountConvertedTotal, "User balance less than 99.9% of converted");
-        assertLe(IERC20(DOLA).balanceOf(user), dolaAmountConvertedTotal * 1001 / 1000, "User balance more than 100.1% of converted");
+        assertGe(IERC20(DOLA).balanceOf(user) * 1001 / 1000, convertDolaIOUsToDola(dolaAmountConvertedTotal), "User balance less than 99.9% of converted");
+        assertLe(IERC20(DOLA).balanceOf(user), convertDolaIOUsToDola(dolaAmountConvertedTotal) * 1001 / 1000, "User balance more than 100.1% of converted");
     }
 
     function testAccrueInterest() public {
@@ -843,5 +846,9 @@ contract ContractTest is DSTest {
         }
 
         vm.store(_token, slot, bytes32(uint256(_amount)));
+    }
+
+    function convertDolaIOUsToDola(uint dolaIOUs) public returns (uint) {
+        return dolaIOUs * debtConverter.exchangeRateMantissa() / 1e18;
     }
 }
