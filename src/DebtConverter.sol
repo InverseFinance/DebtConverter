@@ -77,8 +77,8 @@ contract DebtConverter is ERC20 {
     event NewTransferWhitelistAddress(address whitelistedAddr);
     event NewAnnualExchangeRateIncrease(uint increase);
     event Repayment(uint dolaAmount, uint epoch);
-    event Redemption(address user, uint dolaAmount);
-    event Conversion(address user, uint epoch, address anToken, uint dolaAmount);
+    event Redemption(address indexed user, uint dolaAmount);
+    event Conversion(address indexed user, address indexed anToken, uint epoch, uint dolaAmount, uint underlyingAmount);
 
     struct RepaymentData {
         uint epoch;
@@ -144,7 +144,7 @@ contract DebtConverter is ERC20 {
         require(IERC20(anToken).transferFrom(msg.sender, treasury, amount), "failed to transfer anTokens");
         _mint(msg.sender, dolaIOUsOwed);
 
-        emit Conversion(msg.sender, epoch, anToken, dolaValueOfDebt);
+        emit Conversion(msg.sender, anToken, epoch, dolaValueOfDebt, underlyingAmount);
     }
 
     /*
