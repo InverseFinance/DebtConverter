@@ -30,6 +30,11 @@ contract DebtConverter is ERC20 {
     //Current repayment epoch
     uint public repaymentEpoch;
 
+    //anToken address => maximum price this contract will pay for 1 underlying of the anToken on a call to `convert()`
+    //Make sure to use 18 decimals!
+    //0 = no maximum price
+    mapping(address => uint256) public maxConvertPrice;
+
     //user address => epoch => Conversion struct
     mapping(address => ConversionData[]) public conversions;
     
@@ -76,6 +81,7 @@ contract DebtConverter is ERC20 {
     event NewGovernance(address governance);
     event NewTransferWhitelistAddress(address whitelistedAddr);
     event NewAnnualExchangeRateIncrease(uint increase);
+    event NewMaxConvertPrice(address anToken, uint maxPrice);
     event Repayment(uint dolaAmount, uint epoch);
     event Redemption(address indexed user, uint dolaAmount);
     event Conversion(address indexed user, address indexed anToken, uint epoch, uint dolaAmount, uint underlyingAmount);
@@ -126,7 +132,21 @@ contract DebtConverter is ERC20 {
         accrueInterest();
         
         uint underlyingAmount = ICToken(anToken).balanceOfUnderlying(msg.sender) * amount / ICToken(anToken).balanceOf(msg.sender);
-        uint dolaValueOfDebt = (oracle.getUnderlyingPrice(anToken) * underlyingAmount) / (10 ** 18);
+        uint underlyingPrice = oracle.getUnderlyingPrice(anToken);
+        
+        //Allows operator to set anBtc maxConvertPrice with 18 decimals like other tokens since we normalize it here.
+        //This is necessary since underlyingAmount for btc is only 8 decimals, meaning we need 28 decimals in price to offset decimal division we do later
+        //`oracle.getUnderlyingPrice()` already returns anBtc price normalized for underlying token decimals, so we use it by itself.
+        uint maxConversionPrice = maxConvertPrice[anToken];
+        if (anToken == anBtc) {
+            maxConversionPrice *= 1e10;
+        }
+        
+        //If underlying is currently worth more than maxConvertPrice[anToken], price becomes maxConvertPrice[anToken]
+        if (maxConversionPrice != 0 && underlyingPrice > maxConversionPrice) {
+            underlyingPrice = maxConversionPrice;
+        }
+        uint dolaValueOfDebt = (underlyingPrice * underlyingAmount) / (10 ** 18);
         uint dolaIOUsOwed = convertDolaToDolaIOUs(dolaValueOfDebt);
 
         if (dolaValueOfDebt < minOut) revert DolaAmountLessThanMinOut(minOut, dolaValueOfDebt);
@@ -380,6 +400,17 @@ contract DebtConverter is ERC20 {
         exchangeRateIncreasePerSecond = increasePerYear / 365 days;
         
         emit NewAnnualExchangeRateIncrease(increasePerYear);
+    }
+
+    /*
+     * @notice function for setting maximum price this contract will pay for 1 underlying of the anToken
+     * @param anToken address of the anToken to set maxConvertPrice[anToken]
+     * @param maxPrice maximum price this contract will pay for 1 underlying of `anToken`
+     */
+    function setMaxConvertPrice(address anToken, uint maxPrice) external onlyOwner {
+        maxConvertPrice[anToken] = maxPrice;
+        
+        emit NewMaxConvertPrice(anToken, maxPrice);
     }
 
     /*

@@ -62,6 +62,142 @@ contract ContractTest is DSTest {
         vm.stopPrank();
     }
 
+    function testMaxConvertPriceIsRespectedWhenOraclePriceIsHigherBtc() public {
+        vm.startPrank(gov);
+        debtConverter.setMaxConvertPrice(anBtc, 10_000 * 1e18);
+        comptroller._setMintPaused(anBtc, false);
+
+        vm.stopPrank();
+        vm.startPrank(user);
+
+        gibToken(WBTC, user, 6e8);
+        IERC20(WBTC).approve(anBtc, type(uint).max);
+        ICToken(anBtc).mint(1e8);
+        uint cTokenBal = ICToken(anBtc).balanceOf(user);
+        ICToken(anBtc).mint(5e8);
+
+        IERC20(anBtc).approve(address(debtConverter), type(uint).max);
+
+        debtConverter.convert(anBtc, cTokenBal, 0);
+        assertLe(debtConverter.outstandingDebt(), 10_000 * 1e18 * 1001/1000, "oustanding debt less than 10,000");
+        assertGe(debtConverter.outstandingDebt() * 1001/1000, 10_000 * 1e18, "outsandingDebt greater than 10,000");
+    }
+
+    function testMaxConvertPriceIsNotRespectedWhenOraclePriceIsLowerBtc() public {
+        vm.startPrank(gov);
+        debtConverter.setMaxConvertPrice(anBtc, 30_000 * 1e18);
+        comptroller._setMintPaused(anBtc, false);
+
+        vm.stopPrank();
+        vm.startPrank(user);
+
+        gibToken(WBTC, user, 6e8);
+        IERC20(WBTC).approve(anBtc, type(uint).max);
+        ICToken(anBtc).mint(1e8);
+        uint cTokenBal = ICToken(anBtc).balanceOf(user);
+        ICToken(anBtc).mint(5e8);
+
+        IERC20(anBtc).approve(address(debtConverter), type(uint).max);
+
+        debtConverter.convert(anBtc, cTokenBal, 0);
+        uint btcPrice = btcFeed.latestAnswer();
+        (,uint dolaConverted,) = debtConverter.conversions(user, 0);
+        assertGe(btcPrice * 1001/1000, convertDolaIOUsToDola(dolaConverted) / 1e10, "Converted BTC worth more than amount of DOLA converted");
+        assertLe(btcPrice, convertDolaIOUsToDola(dolaConverted) * 1001/1000 / 1e10, "Amount of DOLA converted worth more than converted BTC");
+    }
+
+    function testNoDifferenceInConversionWhenMaxConvertPriceIsZero() public {
+        vm.startPrank(gov);
+        comptroller._setMintPaused(anBtc, false);
+        debtConverter.setMaxConvertPrice(anBtc, 10_000 * 1e18);
+        debtConverter.setMaxConvertPrice(anBtc, 0);
+
+        vm.stopPrank();
+        vm.startPrank(user);
+
+        gibToken(WBTC, user, 6e8);
+        IERC20(WBTC).approve(anBtc, type(uint).max);
+        ICToken(anBtc).mint(1e8);
+        uint cTokenBal = ICToken(anBtc).balanceOf(user);
+        ICToken(anBtc).mint(5e8);
+
+        IERC20(anBtc).approve(address(debtConverter), type(uint).max);
+        debtConverter.convert(anBtc, cTokenBal, 0);
+
+        uint btcPrice = btcFeed.latestAnswer();
+        (,uint dolaConverted,) = debtConverter.conversions(user, 0);
+        assertGe(btcPrice * 1001/1000, convertDolaIOUsToDola(dolaConverted) / 1e10, "Converted BTC worth more than amount of DOLA converted");
+        assertLe(btcPrice, convertDolaIOUsToDola(dolaConverted) * 1001/1000 / 1e10, "Amount of DOLA converted worth more than converted BTC");
+    }
+
+    function testMaxConvertPriceIsNotRespectedWhenOraclePriceIsLowerEth() public {
+        vm.startPrank(gov);
+        debtConverter.setMaxConvertPrice(anEth, 3_000 * 1e18);
+        comptroller._setMintPaused(anEth, false);
+
+        vm.stopPrank();
+        vm.startPrank(user);
+
+        vm.deal(user, 6e18);
+        IERC20(WBTC).approve(anEth, type(uint).max);
+        ICToken(anEth).mint{value: 1 ether}();
+        uint cTokenBal = ICToken(anEth).balanceOf(user);
+        ICToken(anEth).mint{value: 5 ether}();
+
+        IERC20(anEth).approve(address(debtConverter), type(uint).max);
+
+        debtConverter.convert(anEth, cTokenBal, 0);
+        uint ethPrice = ethFeed.latestAnswer();
+        (,uint dolaConverted,) = debtConverter.conversions(user, 0);
+        assertGe(ethPrice * 1001/1000, convertDolaIOUsToDola(dolaConverted) / 1e10, "Converted ETH worth more than amount of DOLA converted");
+        assertLe(ethPrice, convertDolaIOUsToDola(dolaConverted) * 1001/1000 / 1e10, "Amount of DOLA converted worth more than converted ETH");
+    }
+
+    function testMaxConvertPriceIsRespectedWhenOraclePriceIsHigherEth() public {
+        vm.startPrank(gov);
+        debtConverter.setMaxConvertPrice(anEth, 1_000 * 1e18);
+        comptroller._setMintPaused(anEth, false);
+
+        vm.stopPrank();
+        vm.startPrank(user);
+
+        vm.deal(user, 6e18);
+        IERC20(WBTC).approve(anEth, type(uint).max);
+        ICToken(anEth).mint{value: 1 ether}();
+        uint cTokenBal = ICToken(anEth).balanceOf(user);
+        ICToken(anEth).mint{value: 5 ether}();
+
+        IERC20(anEth).approve(address(debtConverter), type(uint).max);
+
+        debtConverter.convert(anEth, cTokenBal, 0);
+        assertLe(debtConverter.outstandingDebt(), 1_000 * 1e18 * 1001/1000, "oustanding debt less than 1,000");
+        assertGe(debtConverter.outstandingDebt() * 1001/1000, 1_000 * 1e18, "outsandingDebt greater than 1,000");
+    }
+
+    function testNoDifferenceInConversionWhenMaxConvertPriceIsZeroEth() public {
+        vm.startPrank(gov);
+        comptroller._setMintPaused(anEth, false);
+        debtConverter.setMaxConvertPrice(anEth, 10_000 * 1e18);
+        debtConverter.setMaxConvertPrice(anEth, 0);
+
+        vm.stopPrank();
+        vm.startPrank(user);
+
+        vm.deal(user, 6e18);
+        IERC20(WBTC).approve(anEth, type(uint).max);
+        ICToken(anEth).mint{value: 1 ether}();
+        uint cTokenBal = ICToken(anEth).balanceOf(user);
+        ICToken(anEth).mint{value: 5 ether}();
+
+        IERC20(anEth).approve(address(debtConverter), type(uint).max);
+        debtConverter.convert(anEth, cTokenBal, 0);
+
+        uint ethPrice = ethFeed.latestAnswer();
+        (,uint dolaConverted,) = debtConverter.conversions(user, 0);
+        assertGe(ethPrice * 1001/1000, convertDolaIOUsToDola(dolaConverted) / 1e10, "Converted ETH worth more than amount of DOLA converted");
+        assertLe(ethPrice, convertDolaIOUsToDola(dolaConverted) * 1001/1000 / 1e10, "Amount of DOLA converted worth more than converted ETH");
+    }
+
     function testMintUsingEth() public {
         vm.startPrank(gov);
         comptroller._setMintPaused(anEth, false);
