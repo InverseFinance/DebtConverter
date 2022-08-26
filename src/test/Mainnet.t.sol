@@ -51,6 +51,7 @@ contract ContractTest is DSTest {
     error InvalidDebtToken();
     error ConversionEpochNotEqualToCurrentEpoch(uint currentEpoch, uint repaymentEpoch);
     error ThatEpochIsInTheFuture();
+    error ConversionHasNotBeenRedeemedBefore();
     
     function setUp() public {
         debtConverter = new DebtConverter(gov, treasury, gov, oracle);
@@ -366,8 +367,7 @@ contract ContractTest is DSTest {
 
         vm.stopPrank();
         vm.startPrank(user);
-        debtConverter.redeemConversion(0, 0);
-        debtConverter.redeemConversionDust(0);
+        debtConverter.redeemAll(0);
 
         (,uint dolaAmountConverted,) = debtConverter.conversions(user, 0);
 
@@ -467,6 +467,32 @@ contract ContractTest is DSTest {
         vm.startPrank(user);
 
         vm.expectRevert(abi.encodeWithSelector(ConversionEpochNotEqualToCurrentEpoch.selector, 0, 1));
+        debtConverter.redeemConversionDust(0);
+    }
+
+    function testRedeemConversionDustFailsIfConversionHasNotBeenRedeemedBefore() public {
+        //Convert anETH to DOLA IOUs
+        gibAnTokens(user, anEth, anTokenAmount);
+        gibAnTokens(user2, anEth, anTokenAmount);
+
+        vm.startPrank(user2);
+
+        IERC20(anEth).approve(address(debtConverter), anTokenAmount);
+        debtConverter.convert(anEth, anTokenAmount, 0);
+        
+        vm.stopPrank();
+        vm.startPrank(gov);
+        debtConverter.repayment(debtConverter.outstandingDebt());
+
+        vm.stopPrank();
+        vm.startPrank(user);
+        IERC20(anEth).approve(address(debtConverter), anTokenAmount);
+        debtConverter.convert(anEth, anTokenAmount, 0);
+
+        vm.stopPrank();
+        vm.startPrank(user);
+
+        vm.expectRevert(abi.encodeWithSelector(ConversionHasNotBeenRedeemedBefore.selector));
         debtConverter.redeemConversionDust(0);
     }
 

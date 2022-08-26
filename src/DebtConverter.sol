@@ -74,6 +74,7 @@ contract DebtConverter is ERC20 {
     error ConversionDoesNotExist();
     error ConversionEpochNotEqualToCurrentEpoch(uint conversionEpoch, uint currentEpoch);
     error ThatEpochIsInTheFuture();
+    error ConversionHasNotBeenRedeemedBefore();
 
     //Events
     event NewOwner(address owner);
@@ -283,6 +284,7 @@ contract DebtConverter is ERC20 {
     function redeemConversionDust(uint _conversion) public {
         ConversionData memory c = conversions[msg.sender][_conversion];
         if (c.lastEpochRedeemed != repaymentEpoch) revert ConversionEpochNotEqualToCurrentEpoch(c.lastEpochRedeemed, repaymentEpoch);
+        if (c.dolaIOUsRedeemed == 0) revert ConversionHasNotBeenRedeemedBefore();
         accrueInterest();
         uint dolaIOUsLeftToRedeem = c.dolaIOUAmount - c.dolaIOUsRedeemed;
         uint dolaLeftToRedeem = convertDolaIOUsToDola(dolaIOUsLeftToRedeem);
