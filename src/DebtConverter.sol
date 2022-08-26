@@ -181,9 +181,6 @@ contract DebtConverter is ERC20 {
 
         //Calculate redeemable DOLA ratio for this epoch
         uint pctDolaIOUsRedeemable = amount * 1e18 / _outstandingDebt;
-        if (_outstandingDebt == 0) {
-            pctDolaIOUsRedeemable = 1e18;
-        }
 
         //Update debt state variables
         outstandingDebt -= amount;
