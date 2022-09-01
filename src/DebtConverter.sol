@@ -95,12 +95,14 @@ contract DebtConverter is ERC20 {
         uint dolaRedeemed;
     }
 
-    constructor(address _owner, address _treasury, address _governance, address _oracle) ERC20("DOLA IOU", "DOLAIOU") {
+    constructor(uint initialIncreasePerYear, address _owner, address _treasury, address _governance, address _oracle) ERC20("DOLA IOU", "DOLAIOU") {
         owner = _owner;
         treasury = _treasury;
         governance = _governance;
         oracle = IOracle(_oracle);
         lastAccrueInterestTimestamp = block.timestamp;
+        exchangeRateIncreasePerSecond = initialIncreasePerYear / 365 days;
+        emit NewAnnualExchangeRateIncrease(initialIncreasePerYear);
     }
 
     modifier onlyOwner() {
@@ -379,7 +381,7 @@ contract DebtConverter is ERC20 {
      * @notice function for setting rate at which `exchangeRateMantissa` increases every year
      * @param increasePerYear The amount `exchangeRateMantissa` will increase every year. 1e18 is the default exchange rate.
      */
-    function setExchangeRateIncrease(uint increasePerYear) external onlyOwner {
+    function setExchangeRateIncrease(uint increasePerYear) external onlyGovernance {
         exchangeRateIncreasePerSecond = increasePerYear / 365 days;
         
         emit NewAnnualExchangeRateIncrease(increasePerYear);
