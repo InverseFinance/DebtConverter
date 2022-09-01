@@ -30,8 +30,10 @@ contract DebtConverter is ERC20 {
     //Current repayment epoch
     uint public repaymentEpoch;
 
-    //Cumulative repayments made by addresses other than `owner`
-    uint public epochCumRepayments;
+    //anToken address => maximum price this contract will pay for 1 underlying of the anToken on a call to `convert()`
+    //Make sure to use 18 decimals!
+    //0 = no maximum price
+    mapping(address => uint256) public maxConvertPrice;
 
     //user address => epoch => Conversion struct
     mapping(address => ConversionData[]) public conversions;
@@ -72,6 +74,7 @@ contract DebtConverter is ERC20 {
     error ConversionDoesNotExist();
     error ConversionEpochNotEqualToCurrentEpoch(uint conversionEpoch, uint currentEpoch);
     error ThatEpochIsInTheFuture();
+    error ConversionHasNotBeenRedeemedBefore();
 
     //Events
     event NewOwner(address owner);
@@ -79,20 +82,21 @@ contract DebtConverter is ERC20 {
     event NewGovernance(address governance);
     event NewTransferWhitelistAddress(address whitelistedAddr);
     event NewAnnualExchangeRateIncrease(uint increase);
+    event NewMaxConvertPrice(address anToken, uint maxPrice);
     event Repayment(uint dolaAmount, uint epoch);
-    event Redemption(address user, uint dolaAmount);
-    event Conversion(address user, uint epoch, address anToken, uint dolaAmount);
+    event Redemption(address indexed user, uint dolaAmount);
+    event Conversion(address indexed user, address indexed anToken, uint epoch, uint dolaAmount, uint underlyingAmount);
 
     struct RepaymentData {
         uint epoch;
         uint dolaAmount;
-        uint dolaRedeemablePerDolaOfDebt;
+        uint pctDolaIOUsRedeemable;
     }
 
     struct ConversionData {
         uint lastEpochRedeemed;
-        uint dolaAmount;
-        uint dolaRedeemed;
+        uint dolaIOUAmount;
+        uint dolaIOUsRedeemed;
     }
 
     constructor(uint initialIncreasePerYear, address _owner, address _treasury, address _governance, address _oracle) ERC20("DOLA IOU", "DOLAIOU") {
@@ -130,8 +134,22 @@ contract DebtConverter is ERC20 {
         //Accrue interest so exchange rates are fresh
         accrueInterest();
         
-        uint underlyingAmount = ICToken(anToken).balanceOfUnderlying(msg.sender);
-        uint dolaValueOfDebt = (oracle.getUnderlyingPrice(anToken) * underlyingAmount) / (10 ** 18);
+        uint underlyingAmount = ICToken(anToken).balanceOfUnderlying(msg.sender) * amount / ICToken(anToken).balanceOf(msg.sender);
+        uint underlyingPrice = oracle.getUnderlyingPrice(anToken);
+        
+        //Allows operator to set anBtc maxConvertPrice with 18 decimals like other tokens since we normalize it here.
+        //This is necessary since underlyingAmount for btc is only 8 decimals, meaning we need 28 decimals in price to offset decimal division we do later
+        //`oracle.getUnderlyingPrice()` already returns anBtc price normalized for underlying token decimals, so we use it by itself.
+        uint maxConversionPrice = maxConvertPrice[anToken];
+        if (anToken == anBtc) {
+            maxConversionPrice *= 1e10;
+        }
+        
+        //If underlying is currently worth more than maxConvertPrice[anToken], price becomes maxConvertPrice[anToken]
+        if (maxConversionPrice != 0 && underlyingPrice > maxConversionPrice) {
+            underlyingPrice = maxConversionPrice;
+        }
+        uint dolaValueOfDebt = (underlyingPrice * underlyingAmount) / (10 ** 18);
         uint dolaIOUsOwed = convertDolaToDolaIOUs(dolaValueOfDebt);
 
         if (dolaValueOfDebt < minOut) revert DolaAmountLessThanMinOut(minOut, dolaValueOfDebt);
@@ -141,7 +159,7 @@ contract DebtConverter is ERC20 {
 
         uint epoch = repaymentEpoch;
         ConversionData memory c;
-        c.dolaAmount = dolaValueOfDebt;
+        c.dolaIOUAmount = dolaIOUsOwed;
         c.lastEpochRedeemed = epoch;
 
         conversions[msg.sender].push(c);
@@ -149,33 +167,29 @@ contract DebtConverter is ERC20 {
         require(IERC20(anToken).transferFrom(msg.sender, treasury, amount), "failed to transfer anTokens");
         _mint(msg.sender, dolaIOUsOwed);
 
-        emit Conversion(msg.sender, epoch, anToken, dolaValueOfDebt);
+        emit Conversion(msg.sender, anToken, epoch, dolaValueOfDebt, underlyingAmount);
     }
 
     /*
-     * @notice function for repaying DOLA to this contract. Callable by anyone.
-     * @notice will only move to next epoch if caller is `owner`
+     * @notice function for repaying DOLA to this contract. Only callable by owner.
      * @param amount Amount of DOLA to repay & transfer to this contract.
      */
     function repayment(uint amount) external onlyOwner {
         if(amount == 0) return;
         accrueInterest();
         uint _outstandingDebt = outstandingDebt;
-        if (amount > _outstandingDebt) revert InsufficientDebtToBeRepaid(amount + epochCumRepayments, _outstandingDebt);
+        if (amount > _outstandingDebt) revert InsufficientDebtToBeRepaid(amount, _outstandingDebt);
         uint _epoch = repaymentEpoch;
 
         //Calculate redeemable DOLA ratio for this epoch
-        uint dolaRedeemablePerDolaOfDebt = amount * 1e18 / _outstandingDebt;
-        if (_outstandingDebt == 0) {
-            dolaRedeemablePerDolaOfDebt = 1e18;
-        }
+        uint pctDolaIOUsRedeemable = amount * 1e18 / _outstandingDebt;
 
         //Update debt state variables
         outstandingDebt -= amount;
         cumDolaRepaid += amount;
 
         //Store data from current epoch and update epoch state variables
-        repayments[_epoch] = RepaymentData(_epoch, amount, dolaRedeemablePerDolaOfDebt);
+        repayments[_epoch] = RepaymentData(_epoch, amount, pctDolaIOUsRedeemable);
         repaymentEpoch += 1;
         
         uint senderBalance = IERC20(DOLA).balanceOf(msg.sender);
@@ -193,20 +207,10 @@ contract DebtConverter is ERC20 {
      * @param _conversion index of conversion to redeem for
      * @param _epoch repayment epoch to redeem DOLA from
      */
-    function redeem(uint _conversion, uint _epoch) internal returns (uint, uint) {
-        uint redeemableDola = getRedeemableDolaFor(msg.sender, _conversion, _epoch);
-        uint dolaIOUAmountRequired = convertDolaToDolaIOUs(redeemableDola);
-
-        //If msg.sender does not have enough DOLA IOUs, redeem remainder of their DOLA IOUs
-        if (dolaIOUAmountRequired > balanceOf(msg.sender)) {
-            dolaIOUAmountRequired = balanceOf(msg.sender);
-            redeemableDola = convertDolaIOUsToDola(balanceOf(msg.sender));
-        }
-
-        ConversionData storage c = conversions[msg.sender][_conversion];
-        c.dolaRedeemed += redeemableDola;
-
-        return (dolaIOUAmountRequired, redeemableDola);
+    function redeem(uint _conversion, uint _epoch) internal returns (uint) {
+        uint redeemableDolaIOUs = getRedeemableDolaIOUsFor(msg.sender, _conversion, _epoch);
+        conversions[msg.sender][_conversion].dolaIOUsRedeemed += redeemableDolaIOUs;
+        return redeemableDolaIOUs;
     }
 
     /*
@@ -220,7 +224,7 @@ contract DebtConverter is ERC20 {
         ConversionData storage c = conversions[msg.sender][_conversion];
         uint lastEpochRedeemed = c.lastEpochRedeemed;
 
-        uint totalDolaIOUsRequired;
+        uint totalDolaIOUsRedeemable;
         uint totalDolaRedeemable;
 
         if (_endEpoch > repaymentEpoch) revert ThatEpochIsInTheFuture();
@@ -230,10 +234,10 @@ contract DebtConverter is ERC20 {
         }
 
         for (uint i = lastEpochRedeemed; i < _endEpoch;) {
-            //Get redeemable DOLA for this epoch and add to running totals
-            (uint dolaIOUsRequired, uint dolaRedeemable) = redeem(_conversion, i);
-            totalDolaIOUsRequired += dolaIOUsRequired;
-            totalDolaRedeemable += dolaRedeemable;
+            //Get redeemable DOLA IOUs for this epoch and add to running totals
+            uint dolaIOUsRedeemable = redeem(_conversion, i);
+            totalDolaIOUsRedeemable += dolaIOUsRedeemable;
+            totalDolaRedeemable += convertDolaIOUsToDola(dolaIOUsRedeemable);
 
             //We keep the loop going
             unchecked { i++; }
@@ -243,19 +247,27 @@ contract DebtConverter is ERC20 {
 
         //After loop breaks: burn DOLA IOUs, transfer DOLA & emit event.
         //This way we don't have to loop these naughty, costly calls
-        if (totalDolaRedeemable > 0) {
+        if (totalDolaIOUsRedeemable > 0) {
             //Handles rounding errors. Will only allow max redemption equal to DOLA balance of this contract
             //User will be able to redeem using this conversion after another repayment to collect their dust
             uint dolaBal = IERC20(DOLA).balanceOf(address(this));
             if (totalDolaRedeemable > dolaBal) {
                 //Subtract DOLA difference from dolaRedeemed on this conversion object
                 //This way, the user will be able to claim their dust on the next repayment & call to `redeemConversion`
-                c.dolaRedeemed -= (totalDolaRedeemable - dolaBal);
+                c.dolaIOUsRedeemed -= convertDolaToDolaIOUs(totalDolaRedeemable - dolaBal);
                 totalDolaRedeemable = dolaBal;
-                totalDolaIOUsRequired = convertDolaToDolaIOUs(totalDolaRedeemable);
+                totalDolaIOUsRedeemable = convertDolaToDolaIOUs(totalDolaRedeemable);
             }
 
-            _burn(msg.sender, totalDolaIOUsRequired);
+            //If user does not have enough DOLA IOUs to fully redeem, will redeem remainder of IOUs
+            if (totalDolaIOUsRedeemable > balanceOf(msg.sender)) {
+                uint diff = totalDolaIOUsRedeemable - balanceOf(msg.sender);
+                c.dolaIOUsRedeemed -= diff;
+                totalDolaIOUsRedeemable = balanceOf(msg.sender);
+                totalDolaRedeemable = convertDolaIOUsToDola(totalDolaIOUsRedeemable);
+            }
+
+            _burn(msg.sender, totalDolaIOUsRedeemable);
             require(IERC20(DOLA).transfer(msg.sender, totalDolaRedeemable), "DOLA transfer failed");
             
             emit Redemption(msg.sender, totalDolaRedeemable);
@@ -271,15 +283,18 @@ contract DebtConverter is ERC20 {
     function redeemConversionDust(uint _conversion) public {
         ConversionData memory c = conversions[msg.sender][_conversion];
         if (c.lastEpochRedeemed != repaymentEpoch) revert ConversionEpochNotEqualToCurrentEpoch(c.lastEpochRedeemed, repaymentEpoch);
-        uint dolaLeftToRedeem = c.dolaAmount - c.dolaRedeemed;
-        uint redeemablePct = dolaLeftToRedeem * 1e18 / c.dolaRedeemed;
+        if (c.dolaIOUsRedeemed == 0) revert ConversionHasNotBeenRedeemedBefore();
+        accrueInterest();
+        uint dolaIOUsLeftToRedeem = c.dolaIOUAmount - c.dolaIOUsRedeemed;
+        uint dolaLeftToRedeem = convertDolaIOUsToDola(dolaIOUsLeftToRedeem);
+        uint redeemableIOUsPct = dolaIOUsLeftToRedeem * 1e18 / c.dolaIOUsRedeemed;
 
         //1.2%
         uint dolaBal = IERC20(DOLA).balanceOf(address(this));
-        if (redeemablePct <= .012e18 && dolaLeftToRedeem <= dolaBal) {
-            conversions[msg.sender][_conversion].dolaRedeemed += dolaLeftToRedeem;
+        if (redeemableIOUsPct <= .012e18 && dolaLeftToRedeem <= dolaBal) {
+            conversions[msg.sender][_conversion].dolaIOUsRedeemed += dolaIOUsLeftToRedeem;
 
-            _burn(msg.sender, convertDolaToDolaIOUs(dolaLeftToRedeem));
+            _burn(msg.sender, dolaIOUsLeftToRedeem);
             require(IERC20(DOLA).transfer(msg.sender, dolaLeftToRedeem), "DOLA transfer failed");
             emit Redemption(msg.sender, dolaLeftToRedeem);
         }
@@ -306,23 +321,23 @@ contract DebtConverter is ERC20 {
     }
 
     /*
-     * @notice function for calculating redeemable DOLA of an account
-     * @param _addr Address to view redeemable DOLA of
-     * @param _conversion index of conversion to calculate redeemable DOLA for
-     * @param _epoch repayment epoch to calculate redeemable DOLA of
+     * @notice function for calculating redeemable DOLA IOUs of an account
+     * @param _addr Address to view redeemable DOLA IOUs of
+     * @param _conversion index of conversion to calculate redeemable DOLA IOUs for
+     * @param _epoch repayment epoch to calculate redeemable DOLA IOUs of
      */
-    function getRedeemableDolaFor(address _addr, uint _conversion, uint _epoch) public view returns (uint) {
+    function getRedeemableDolaIOUsFor(address _addr, uint _conversion, uint _epoch) public view returns (uint) {
         ConversionData memory c = conversions[_addr][_conversion];
-        uint userRedeemedDola =c.dolaRedeemed;
-        uint userConvertedDebt = c.dolaAmount;
-        uint dolaRemaining = userConvertedDebt * exchangeRateMantissa / 1e18 - userRedeemedDola;
+        uint userRedeemedIOUs = c.dolaIOUsRedeemed;
+        uint userConvertedIOUs = c.dolaIOUAmount;
+        uint dolaIOUsRemaining = userConvertedIOUs - userRedeemedIOUs;
 
-        uint totalDolaRedeemable = (repayments[_epoch].dolaRedeemablePerDolaOfDebt * userConvertedDebt * exchangeRateMantissa / 1e36);
+        uint totalDolaIOUsRedeemable = (repayments[_epoch].pctDolaIOUsRedeemable * userConvertedIOUs / 1e18);
 
-        if (dolaRemaining >= totalDolaRedeemable) {
-            return totalDolaRedeemable;
+        if (dolaIOUsRemaining >= totalDolaIOUsRedeemable) {
+            return totalDolaIOUsRedeemable;
         } else {
-            return dolaRemaining;
+            return dolaIOUsRemaining;
         }
     }
 
@@ -382,9 +397,21 @@ contract DebtConverter is ERC20 {
      * @param increasePerYear The amount `exchangeRateMantissa` will increase every year. 1e18 is the default exchange rate.
      */
     function setExchangeRateIncrease(uint increasePerYear) external onlyGovernance {
+        accrueInterest();
         exchangeRateIncreasePerSecond = increasePerYear / 365 days;
         
         emit NewAnnualExchangeRateIncrease(increasePerYear);
+    }
+
+    /*
+     * @notice function for setting maximum price this contract will pay for 1 underlying of the anToken
+     * @param anToken address of the anToken to set maxConvertPrice[anToken]
+     * @param maxPrice maximum price this contract will pay for 1 underlying of `anToken`
+     */
+    function setMaxConvertPrice(address anToken, uint maxPrice) external onlyOwner {
+        maxConvertPrice[anToken] = maxPrice;
+        
+        emit NewMaxConvertPrice(anToken, maxPrice);
     }
 
     /*
