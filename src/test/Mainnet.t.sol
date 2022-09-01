@@ -37,6 +37,7 @@ contract ContractTest is DSTest {
     address user2 = address(1337);
 
     //Numbas
+    uint initialIncreasePerYear = 0;
     uint anTokenAmount = 50 * 10**8;
     uint anBtcAmount = 50 * 10**8;
     uint dolaAmount = 2 * 10 ** 7 * 10**18;
@@ -53,7 +54,7 @@ contract ContractTest is DSTest {
     error ThatEpochIsInTheFuture();
     
     function setUp() public {
-        debtConverter = new DebtConverter(gov, treasury, gov, oracle);
+        debtConverter = new DebtConverter(0, gov, treasury, gov, oracle);
 
         vm.startPrank(gov);
         gibDOLA(gov, dolaAmount);
@@ -778,7 +779,7 @@ contract ContractTest is DSTest {
     function testSetExchangeRateIncreaseNotCallableByNonOwner() public {
         vm.startPrank(user);
 
-        vm.expectRevert(OnlyOwner.selector);
+        vm.expectRevert(OnlyGovernance.selector);
         debtConverter.setExchangeRateIncrease(1e18);
     }
 
