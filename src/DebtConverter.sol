@@ -408,7 +408,7 @@ contract DebtConverter is ERC20 {
      * @param anToken address of the anToken to set maxConvertPrice[anToken]
      * @param maxPrice maximum price this contract will pay for 1 underlying of `anToken`
      */
-    function setMaxConvertPrice(address anToken, uint maxPrice) external onlyOwner {
+    function setMaxConvertPrice(address anToken, uint maxPrice) external onlyGovernance {
         maxConvertPrice[anToken] = maxPrice;
         
         emit NewMaxConvertPrice(anToken, maxPrice);
