@@ -448,7 +448,7 @@ contract DebtConverter is ERC20 {
      * @notice function for whitelisting IOU token transfers to certain addresses.
      * @param whitelistedAddress Address to be added to whitelist. IOU tokens will be able to be transferred to this address.
      */
-    function whitelistTransferFor(address whitelistedAddress) external onlyOwner {
+    function whitelistTransferFor(address whitelistedAddress) external onlyGovernance {
         transferWhitelist[whitelistedAddress] = true;
 
         emit NewTransferWhitelistAddress(whitelistedAddress);
